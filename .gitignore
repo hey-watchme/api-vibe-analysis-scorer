@@ -1,0 +1,30 @@
+# Environment files
+.env
+*.env
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Scripts with API keys
+run_api.sh
+run_emotion_test.sh
+run_test.sh
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Data files
+/data/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

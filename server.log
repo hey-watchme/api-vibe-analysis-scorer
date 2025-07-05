@@ -1,0 +1,7 @@
+INFO:     Started server process [46450]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8002 (Press CTRL+C to quit)
+INFO:     127.0.0.1:65278 - "GET /debug-ec2-connection HTTP/1.1" 200 OK
+EC2アップロード成功: {'status': 'ok', 'path': '/home/ubuntu/data/data_accounts/d067d407-cf73-4174-a9c1-d91fb60d64d0/2025-07-05/emotion-timeline/emotion-timeline.json', 'device_id': 'd067d407-cf73-4174-a9c1-d91fb60d64d0'}
+INFO:     127.0.0.1:65424 - "POST /analyze-mood-ec2 HTTP/1.1" 200 OK
