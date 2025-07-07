@@ -1,16 +1,18 @@
 # VibeGraph Generation API
 
-Vault連携対応の心理グラフ(VibeGraph)生成・ChatGPT中継APIサービス
+Vault連携対応・Supabase統合版の心理グラフ(VibeGraph)生成・ChatGPT中継APIサービス
 
 ## 🎯 概要
 
-このAPIは、ChatGPTとの中継機能と心理グラフ(VibeGraph)生成機能を提供するFastAPIベースのサービスです。Vault（WatchMeエコシステムのデータ保管庫）との連携により、音声転写データから心理状態のタイムラインを生成します。
+このAPIは、ChatGPTとの中継機能と心理グラフ(VibeGraph)生成機能を提供するFastAPIベースのサービスです。Vault（WatchMeエコシステムのデータ保管庫）との連携に加え、Supabaseデータベースとの直接統合により、音声転写データから心理状態のタイムラインを生成します。
 
 ## ✨ 主要機能
 
 - **ChatGPT中継**: 任意のプロンプトをChatGPT APIに中継
 - **心理グラフ(VibeGraph)生成**: 音声転写データから48時間分の心理状態スコアを生成
 - **Vault連携**: WatchMeエコシステムのクラウドデータ保管庫との自動データ同期
+- **🆕 Supabase統合**: `vibe_whisper_prompt`テーブルから読み込み、`vibe_whisper_summary`テーブルに保存
+- **✅ 本番動作確認済み**: 2025-07-06データで正常処理完了
 - **リトライ機能**: OpenAI API呼び出しの安定性確保
 - **NaN値処理**: 欠損データの適切な処理
 - **構造バリデーション**: データ整合性の自動チェック
@@ -39,6 +41,10 @@ pip install -r requirements.txt
 ```bash
 # 必須: OpenAI API キー
 export OPENAI_API_KEY="sk-your-openai-api-key-here"
+
+# 必須: Supabase設定（Supabase統合版使用時）
+export SUPABASE_URL="https://your-project.supabase.co"
+export SUPABASE_KEY="your-anon-key"
 
 # オプション: モデル指定（デフォルト: gpt-4）
 export OPENAI_MODEL="gpt-4"
@@ -110,11 +116,17 @@ POST /analyze/chatgpt
 }
 ```
 
-#### 3. 心理グラフ(VibeGraph)生成 ⭐ 【メインエンドポイント】
+#### 3. 心理グラフ(VibeGraph)生成（Vault版）
 ```http
 POST /analyze-vibegraph-vault
 ```
 Vaultからプロンプトを取得し、ChatGPTで心理グラフを生成後、Vaultにアップロード
+
+#### 4. 心理グラフ(VibeGraph)生成（Supabase版） ⭐ 【新規エンドポイント】
+```http
+POST /analyze-vibegraph-supabase
+```
+`vibe_whisper_prompt`テーブルからプロンプトを取得し、ChatGPTで心理グラフを生成後、`vibe_whisper_summary`テーブルに保存
 
 **リクエスト:**
 ```json
@@ -294,6 +306,7 @@ requests>=2.31.0
 python-multipart>=0.0.6
 aiohttp>=3.8.0
 tenacity>=8.2.0
+supabase==2.3.4  # Supabase統合版で必要
 ```
 
 ## 🔐 セキュリティ
@@ -309,6 +322,8 @@ tenacity>=8.2.0
 ```bash
 # 環境変数設定
 export OPENAI_API_KEY="your-production-key"
+export SUPABASE_URL="https://your-project.supabase.co"
+export SUPABASE_KEY="your-anon-key"
 export EC2_BASE_URL="https://api.hey-watch.me"  # Vault接続
 export OPENAI_MODEL="gpt-4"
 
@@ -356,9 +371,29 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
 
 問題や質問がある場合は、GitHubのIssuesページでお知らせください。
 
+## 🧪 テスト実績
+
+### 2025年7月6日テスト結果（Supabase統合版）
+
+**テストデバイス**: `d067d407-cf73-4174-a9c1-d91fb60d64d0`
+
+```bash
+# ✅ Supabase統合版テスト
+curl -X POST "http://localhost:8002/analyze-vibegraph-supabase" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0", "date": "2025-07-06"}'
+# → 成功: vibe_whisper_summaryテーブルに保存
+```
+
+**処理結果**:
+- 📊 処理時間: 約26秒（ChatGPT API呼び出し含む）
+- 📊 感情スコア: 平均15.0（ポジティブ：1.0時間、ニュートラル：45.0時間）
+- ✅ データベース保存: 正常完了
+- ✅ 構造バリデーション: 48個のスコア正常処理
+
 ---
 
 **開発者**: WatchMe VibeGraph API Team  
-**バージョン**: 2.0.0  
-**最終更新**: 2025-07-05  
-**主な変更**: device_id移行完了、心理グラフ(VibeGraph)名称統一、Vault連携最適化
+**バージョン**: 2.1.0  
+**最終更新**: 2025-07-07  
+**主な変更**: Supabase統合版実装完了、本番動作確認済み

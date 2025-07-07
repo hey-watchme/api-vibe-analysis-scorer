@@ -6,15 +6,19 @@ import json
 import re
 import math
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 import aiohttp
 import asyncio
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from pathlib import Path
+from fastapi.middleware.cors import CORSMiddleware
 
 # 環境変数の読み込み
 load_dotenv()
+
+# Supabaseクライアントのインポート（遅延初期化のため後で）
+from supabase_client import SupabaseClient
 
 # 設定
 EC2_BASE_URL = os.getenv("EC2_BASE_URL", "https://api.hey-watch.me")  # デフォルトをEC2モードに変更
@@ -24,6 +28,30 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI(title="VibeGraph Generation API")
+
+# CORS設定
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 本番環境では適切に制限してください
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Supabaseクライアントの遅延初期化
+supabase_client = None
+
+def get_supabase_client():
+    """Supabaseクライアントを遅延初期化して取得"""
+    global supabase_client
+    if supabase_client is None:
+        try:
+            supabase_client = SupabaseClient()
+            print("✅ Supabase client initialized successfully")
+        except Exception as e:
+            print(f"❌ Failed to initialize Supabase client: {e}")
+            raise e
+    return supabase_client
 
 class PromptRequest(BaseModel):
     prompt: str
@@ -386,6 +414,118 @@ async def analyze_vibegraph_vault(request: VibeGraphRequest):
         raise HTTPException(
             status_code=500, 
             detail=f"Vault連携心理グラフ(VibeGraph)処理中にエラーが発生しました: {str(e)}"
+        )
+
+@app.post("/analyze-vibegraph-supabase")
+async def analyze_vibegraph_supabase(request: VibeGraphRequest):
+    """
+    Supabase統合版の心理グラフ(VibeGraph)処理
+    vibe_whisper_promptテーブルからプロンプトを取得し、処理後にvibe_whisper_summaryテーブルに保存
+    """
+    try:
+        device_id = request.device_id
+        date = request.date or datetime.now().strftime("%Y-%m-%d")
+        
+        processing_log = {
+            "start_time": datetime.now().isoformat(),
+            "mode": "supabase",
+            "processing_steps": [],
+            "complete": False,
+            "warnings": []
+        }
+        
+        # Supabaseクライアントの取得
+        supabase = get_supabase_client()
+        
+        # 1) vibe_whisper_promptテーブルからプロンプト取得
+        prompt_data = await supabase.get_vibe_whisper_prompt(device_id, date)
+        if prompt_data is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"プロンプトが見つかりません: device_id={device_id}, date={date}"
+            )
+        processing_log["processing_steps"].append("vibe_whisper_promptからプロンプト取得完了")
+        
+        if "prompt" not in prompt_data:
+            raise HTTPException(
+                status_code=400, 
+                detail="プロンプトデータに'prompt'フィールドが見つかりません"
+            )
+        
+        # 2) ChatGPT処理（リトライ付き）
+        analysis_result = await call_chatgpt_with_retry(prompt_data["prompt"])
+        processing_log["processing_steps"].append("ChatGPT処理完了")
+        
+        # 3) 構造バリデーション
+        validated_data, validation_info = validate_emotion_scores(analysis_result)
+        processing_log["validation_info"] = validation_info
+        processing_log["processing_steps"].append("構造バリデーション完了")
+        
+        # 警告の追加
+        if validation_info.get("score_length_warning", False):
+            processing_log["warnings"].append(f"emotionScores不足: {validation_info['missing_scores_filled']}個のスコアをNaNで補完")
+        
+        if validation_info.get("nan_scores_detected", 0) > 0:
+            processing_log["warnings"].append(f"{validation_info['nan_scores_detected']}個のNaN値を検出")
+        
+        # 4) データを整形してvibe_whisper_summaryテーブルに保存
+        # emotionScoresをvibe_scoresに変換（キー名の変更）
+        vibe_scores = validated_data.get("emotionScores", [])
+        
+        save_success = await supabase.save_to_vibe_whisper_summary(
+            device_id=device_id,
+            target_date=date,
+            vibe_scores=vibe_scores,
+            average_score=validated_data.get("averageScore", 0.0),
+            positive_hours=validated_data.get("positiveHours", 0.0),
+            negative_hours=validated_data.get("negativeHours", 0.0),
+            neutral_hours=validated_data.get("neutralHours", 0.0),
+            insights=validated_data.get("insights", []),
+            vibe_changes=validated_data.get("emotionChanges", []),
+            processing_log=processing_log
+        )
+        
+        if save_success:
+            processing_log["processing_steps"].append("vibe_whisper_summaryテーブルに保存完了")
+            final_status = "success"
+        else:
+            processing_log["processing_steps"].append("vibe_whisper_summaryテーブルへの保存失敗")
+            processing_log["warnings"].append("データベースへの保存に失敗しました")
+            final_status = "failed"
+        
+        processing_log["complete"] = True
+        processing_log["end_time"] = datetime.now().isoformat()
+        
+        return {
+            "status": final_status,
+            "message": "Supabase統合心理グラフ(VibeGraph)処理が完了しました" if final_status == "success" else "処理中にエラーが発生しました",
+            "device_id": device_id,
+            "date": date,
+            "database_save": save_success,
+            "processed_at": datetime.now().isoformat(),
+            "processing_log": processing_log,
+            "validation_summary": {
+                "total_warnings": len(processing_log["warnings"]),
+                "structure_valid": not validation_info.get("score_length_warning", False),
+                "nan_handling": "completed" if validation_info.get("nan_scores_detected", 0) > 0 else "not_required"
+            },
+            "summary": {
+                "vibe_scores": vibe_scores,
+                "average_score": validated_data.get("averageScore", 0.0),
+                "positive_hours": validated_data.get("positiveHours", 0.0),
+                "negative_hours": validated_data.get("negativeHours", 0.0),
+                "neutral_hours": validated_data.get("neutralHours", 0.0),
+                "insights": validated_data.get("insights", []),
+                "vibe_changes": validated_data.get("emotionChanges", [])
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Supabase統合心理グラフ(VibeGraph)処理中にエラーが発生しました: {str(e)}"
         )
 
 @app.get("/debug-ec2-connection")
