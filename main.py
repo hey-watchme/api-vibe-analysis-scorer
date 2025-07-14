@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from openai import OpenAI
 import os
@@ -8,20 +8,16 @@ import math
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
-import aiohttp
-import asyncio
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from pathlib import Path
 from fastapi.middleware.cors import CORSMiddleware
 
 # 環境変数の読み込み
 load_dotenv()
 
-# Supabaseクライアントのインポート（遅延初期化のため後で）
+# Supabaseクライアントのインポート
 from supabase_client import SupabaseClient
 
 # 設定
-EC2_BASE_URL = os.getenv("EC2_BASE_URL", "https://api.hey-watch.me")  # デフォルトをEC2モードに変更
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
 
 # OpenAI クライアントの初期化
@@ -165,85 +161,6 @@ def validate_emotion_scores(data: Dict[str, Any]) -> Dict[str, Any]:
     
     return data, validation_info
 
-# EC2連携ヘルパー関数
-async def fetch_prompt_from_ec2(device_id: str, date: str) -> Optional[Dict[str, Any]]:
-    """EC2からプロンプトファイルを取得"""
-    if EC2_BASE_URL == "local":
-        # ローカルモード
-        local_path = f"/Users/kaya.matsumoto/data/data_accounts/{device_id}/{date}/prompt/emotion-timeline_gpt_prompt.json"
-        try:
-            with open(local_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except FileNotFoundError:
-            return None
-        except Exception as e:
-            print(f"ローカルファイル読み込みエラー: {e}")
-            return None
-    else:
-        # EC2モード
-        url = f"{EC2_BASE_URL}/status/{device_id}/{date}/prompt/emotion-timeline_gpt_prompt.json"
-        try:
-            # SSL検証を無効にしてテスト
-            connector = aiohttp.TCPConnector(ssl=False)
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    else:
-                        print(f"EC2からの取得失敗: {response.status} - URL: {url}")
-                        error_text = await response.text()
-                        print(f"エラー詳細: {error_text}")
-                        return None
-        except Exception as e:
-            print(f"EC2接続エラー: {e}")
-            return None
-
-def save_analysis_locally(device_id: str, date: str, analysis_data: Dict[str, Any]) -> str:
-    """分析結果をローカルに保存"""
-    local_dir = f"/Users/kaya.matsumoto/data/data_accounts/{device_id}/{date}/emotion-timeline"
-    local_path = f"{local_dir}/emotion-timeline.json"
-    
-    # ディレクトリ作成
-    Path(local_dir).mkdir(parents=True, exist_ok=True)
-    
-    # ファイル保存
-    with open(local_path, 'w', encoding='utf-8') as f:
-        json.dump(analysis_data, f, ensure_ascii=False, indent=2, default=str)
-    
-    return local_path
-
-async def upload_analysis_to_ec2(device_id: str, date: str, local_file_path: str) -> bool:
-    """分析結果をEC2にアップロード"""
-    if EC2_BASE_URL == "local":
-        # ローカルモードでは何もしない
-        return True
-    
-    # 新しいエンドポイントを使用
-    url = f"{EC2_BASE_URL}/upload/analysis/emotion-timeline"
-    
-    try:
-        with open(local_file_path, 'rb') as f:
-            data = aiohttp.FormData()
-            data.add_field('file', f, filename='emotion-timeline.json', content_type='application/json')
-            data.add_field('device_id', device_id)
-            data.add_field('date', date)
-            
-            connector = aiohttp.TCPConnector(ssl=False)
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.post(url, data=data) as response:
-                    if response.status == 200:
-                        response_data = await response.json()
-                        print(f"EC2アップロード成功: {response_data}")
-                        return True
-                    else:
-                        print(f"EC2アップロード失敗: {response.status}")
-                        error_text = await response.text()
-                        print(f"エラー詳細: {error_text}")
-                        return False
-    except Exception as e:
-        print(f"EC2アップロードエラー: {e}")
-        return False
-
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=10),
@@ -286,7 +203,7 @@ async def relay_to_chatgpt(request: PromptRequest):
     try:
         # ChatGPT APIの呼び出し
         response = client.chat.completions.create(
-            model="gpt-4",  # または "gpt-3.5-turbo"
+            model=OPENAI_MODEL,
             messages=[
                 {"role": "user", "content": request.prompt}
             ]
@@ -306,115 +223,14 @@ async def relay_to_chatgpt(request: PromptRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"ChatGPT APIでエラーが発生しました: {str(e)}")
 
-# このエンドポイントは廃止されました。/analyze-vibegraph-vaultを使用してください。
-
 @app.get("/health")
 async def health_check():
     """ヘルスチェック"""
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "mode": "local" if EC2_BASE_URL == "local" else "ec2",
-        "ec2_base_url": EC2_BASE_URL,
         "openai_model": OPENAI_MODEL
     }
-
-# このエンドポイントは廃止されました。/analyze-vibegraph-vaultを使用してください。
-
-@app.post("/analyze-vibegraph-vault")
-async def analyze_vibegraph_vault(request: VibeGraphRequest):
-    """
-    Vault連携版の心理グラフ(VibeGraph)処理
-    Vaultからプロンプトを取得し、処理後にVaultにアップロード
-    """
-    try:
-        device_id = request.device_id
-        date = request.date or datetime.now().strftime("%Y-%m-%d")
-        
-        processing_log = {
-            "start_time": datetime.now().isoformat(),
-            "mode": "ec2" if EC2_BASE_URL != "local" else "local",
-            "ec2_base_url": EC2_BASE_URL,
-            "processing_steps": [],
-            "complete": False,
-            "warnings": []
-        }
-        
-        # 1) プロンプト取得（EC2またはローカル）
-        prompt_data = await fetch_prompt_from_ec2(device_id, date)
-        if prompt_data is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"プロンプトファイルが見つかりません: {device_id}/{date}"
-            )
-        processing_log["processing_steps"].append("プロンプト取得完了")
-        
-        if "prompt" not in prompt_data:
-            raise HTTPException(
-                status_code=400, 
-                detail="プロンプトファイルに'prompt'フィールドが見つかりません"
-            )
-        
-        # 2) ChatGPT処理（リトライ付き）
-        analysis_result = await call_chatgpt_with_retry(prompt_data["prompt"])
-        processing_log["processing_steps"].append("ChatGPT処理完了")
-        
-        # 3) 構造バリデーション
-        validated_data, validation_info = validate_emotion_scores(analysis_result)
-        processing_log["validation_info"] = validation_info
-        processing_log["processing_steps"].append("構造バリデーション完了")
-        
-        # 警告の追加
-        if validation_info.get("score_length_warning", False):
-            processing_log["warnings"].append(f"emotionScores不足: {validation_info['missing_scores_filled']}個のスコアをNaNで補完")
-        
-        if validation_info.get("nan_scores_detected", 0) > 0:
-            processing_log["warnings"].append(f"{validation_info['nan_scores_detected']}個のNaN値を検出")
-        
-        # 処理時刻の追加
-        validated_data["processed_at"] = datetime.now().isoformat()
-        validated_data["processing_log"] = processing_log
-        
-        # 4) ローカル保存
-        local_path = save_analysis_locally(device_id, date, validated_data)
-        processing_log["processing_steps"].append("ローカル保存完了")
-        
-        # 5) EC2アップロード
-        upload_success = await upload_analysis_to_ec2(device_id, date, local_path)
-        if upload_success:
-            processing_log["processing_steps"].append("EC2アップロード完了")
-            final_status = "success"
-        else:
-            processing_log["processing_steps"].append("EC2アップロード失敗")
-            processing_log["warnings"].append("EC2アップロードに失敗しました")
-            final_status = "partial"
-        
-        processing_log["complete"] = True
-        processing_log["end_time"] = datetime.now().isoformat()
-        
-        return {
-            "status": final_status,
-            "message": "Vault連携心理グラフ(VibeGraph)処理が完了しました" if final_status == "success" else "処理は完了しましたが、Vaultアップロードに失敗しました",
-            "device_id": device_id,
-            "date": date,
-            "local_file": local_path,
-            "ec2_upload": upload_success,
-            "processed_at": datetime.now().isoformat(),
-            "processing_log": processing_log,
-            "validation_summary": {
-                "total_warnings": len(processing_log["warnings"]),
-                "structure_valid": not validation_info.get("score_length_warning", False),
-                "nan_handling": "completed" if validation_info.get("nan_scores_detected", 0) > 0 else "not_required"
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Vault連携心理グラフ(VibeGraph)処理中にエラーが発生しました: {str(e)}"
-        )
 
 @app.post("/analyze-vibegraph-supabase")
 async def analyze_vibegraph_supabase(request: VibeGraphRequest):
@@ -528,51 +344,6 @@ async def analyze_vibegraph_supabase(request: VibeGraphRequest):
             detail=f"Supabase統合心理グラフ(VibeGraph)処理中にエラーが発生しました: {str(e)}"
         )
 
-@app.get("/debug-ec2-connection")
-async def debug_ec2_connection():
-    """EC2接続テスト用デバッグエンドポイント"""
-    debug_info = {
-        "timestamp": datetime.now().isoformat(),
-        "environment": {
-            "EC2_BASE_URL": EC2_BASE_URL,
-            "mode": "local" if EC2_BASE_URL == "local" else "ec2",
-            "OPENAI_MODEL": OPENAI_MODEL,
-            "has_openai_key": bool(os.getenv("OPENAI_API_KEY"))
-        },
-        "tests": []
-    }
-    
-    if EC2_BASE_URL == "local":
-        debug_info["tests"].append({
-            "test": "local_mode",
-            "status": "active",
-            "message": "ローカルモードで動作中"
-        })
-    else:
-        # EC2接続テスト
-        test_url = f"{EC2_BASE_URL}/health"
-        try:
-            connector = aiohttp.TCPConnector(ssl=False)
-            async with aiohttp.ClientSession(connector=connector) as session:
-                async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    debug_info["tests"].append({
-                        "test": "ec2_health_check",
-                        "url": test_url,
-                        "status": response.status,
-                        "success": response.status == 200,
-                        "response": await response.text() if response.status == 200 else None
-                    })
-        except Exception as e:
-            debug_info["tests"].append({
-                "test": "ec2_health_check",
-                "url": test_url,
-                "status": "error",
-                "success": False,
-                "error": str(e)
-            })
-    
-    return debug_info
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8002) 
+    uvicorn.run(app, host="0.0.0.0", port=8002)
