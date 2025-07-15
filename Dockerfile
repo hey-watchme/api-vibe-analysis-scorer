@@ -7,6 +7,7 @@ WORKDIR /app
 # システム依存関係のインストール
 RUN apt-get update && apt-get install -y \
     gcc \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 依存関係ファイルのコピー

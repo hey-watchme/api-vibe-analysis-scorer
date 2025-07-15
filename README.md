@@ -2,6 +2,14 @@
 
 Supabase統合版の心理グラフ(VibeGraph)生成・ChatGPT中継APIサービス
 
+## 🌐 外部公開URL
+
+**本番環境URL**: `https://api.hey-watch.me/vibe-scorer/`
+
+- マイクロサービスとして外部から利用可能
+- SSL/HTTPS対応
+- CORS設定済み
+
 ## 🎯 概要
 
 このAPIは、ChatGPTとの中継機能と心理グラフ(VibeGraph)生成機能を提供するFastAPIベースのサービスです。Supabaseデータベースとの統合により、音声転写データから心理状態のタイムラインを生成します。
@@ -18,6 +26,11 @@ Supabase統合版の心理グラフ(VibeGraph)生成・ChatGPT中継APIサービ
 - **構造バリデーション**: データ整合性の自動チェック
 
 ## 📋 更新履歴
+
+### 2025-07-15 - バージョン 3.1.0
+- **外部URL公開**: `https://api.hey-watch.me/vibe-scorer/` で外部アクセス可能
+- **Nginxリバースプロキシ設定**: SSL/HTTPS対応、CORS設定完了
+- **ヘルスチェック修正**: Dockerfileにcurlを追加してヘルスチェック問題を解決
 
 ### 2025-07-14 - バージョン 3.0.0
 - **重要な変更**: ローカルモード・Vault連携機能を完全削除
@@ -74,8 +87,11 @@ python3 main.py
 ### 4. 動作確認
 
 ```bash
-# ヘルスチェック
+# ヘルスチェック（ローカル）
 curl http://localhost:8002/health
+
+# ヘルスチェック（本番環境）
+curl https://api.hey-watch.me/vibe-scorer/health
 ```
 
 ## 🐳 Docker デプロイメント
@@ -235,7 +251,8 @@ docker-compose down && docker-compose up -d
 ## 📚 API エンドポイント
 
 ### 基本情報
-- **ベースURL**: `http://your-server:8002`
+- **本番環境URL**: `https://api.hey-watch.me/vibe-scorer`
+- **ローカルURL**: `http://localhost:8002`
 - **認証**: 不要（OpenAI APIキーは環境変数で設定）
 - **レスポンス形式**: JSON
 
@@ -323,14 +340,29 @@ python3 test_mood_analysis.py
 ```
 
 ### 手動テスト例
+
+#### ローカル環境
 ```bash
 # 心理グラフ(VibeGraph)生成 - Supabase統合
 curl -X POST http://localhost:8002/analyze-vibegraph-supabase \
   -H "Content-Type: application/json" \
-  -d '{"device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0", "date": "2025-07-13"}'
+  -d '{"device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0", "date": "2025-07-14"}'
 
 # 汎用ChatGPT中継
 curl -X POST http://localhost:8002/analyze/chatgpt \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "あなたのプロンプトをここに入力"}'
+```
+
+#### 本番環境（外部URL）
+```bash
+# 心理グラフ(VibeGraph)生成 - Supabase統合
+curl -X POST https://api.hey-watch.me/vibe-scorer/analyze-vibegraph-supabase \
+  -H "Content-Type: application/json" \
+  -d '{"device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0", "date": "2025-07-14"}'
+
+# 汎用ChatGPT中継
+curl -X POST https://api.hey-watch.me/vibe-scorer/analyze/chatgpt \
   -H "Content-Type: application/json" \
   -d '{"prompt": "あなたのプロンプトをここに入力"}'
 ```
@@ -481,6 +513,25 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
 
 ## 🧪 テスト実績
 
+### 2025年7月15日テスト結果（外部URL経由）
+
+**テストデバイス**: `d067d407-cf73-4174-a9c1-d91fb60d64d0`
+
+```bash
+# ✅ 外部URL経由でのテスト
+curl -X POST "https://api.hey-watch.me/vibe-scorer/analyze-vibegraph-supabase" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0", "date": "2025-07-14"}'
+# → 成功: vibe_whisper_summaryテーブルに保存
+```
+
+**処理結果**:
+- 📊 処理時間: 約37秒（ChatGPT API呼び出し含む）
+- 📊 感情スコア: 平均32.5（ポジティブ：2.0時間、ネガティブ：0.5時間、ニュートラル：45.5時間）
+- ✅ データベース保存: 正常完了
+- ✅ 構造バリデーション: 48個のスコア正常処理
+- ✅ 外部アクセス: HTTPS経由で正常動作
+
 ### 2025年7月14日テスト結果（Supabase統合版）
 
 **テストデバイス**: `d067d407-cf73-4174-a9c1-d91fb60d64d0`
@@ -501,7 +552,68 @@ curl -X POST "http://3.24.16.82:8002/analyze-vibegraph-supabase" \
 
 ---
 
+## 🔗 マイクロサービス統合
+
+### 外部サービスからの利用方法
+
+```python
+import requests
+import asyncio
+import aiohttp
+
+# 同期版
+def analyze_vibegraph(device_id: str, date: str):
+    url = "https://api.hey-watch.me/vibe-scorer/analyze-vibegraph-supabase"
+    data = {"device_id": device_id, "date": date}
+    
+    response = requests.post(url, json=data)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise Exception(f"API Error: {response.text}")
+
+# 非同期版
+async def analyze_vibegraph_async(device_id: str, date: str):
+    url = "https://api.hey-watch.me/vibe-scorer/analyze-vibegraph-supabase"
+    data = {"device_id": device_id, "date": date}
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=data) as response:
+            if response.status == 200:
+                return await response.json()
+            else:
+                raise Exception(f"API Error: {await response.text()}")
+
+# 使用例
+result = analyze_vibegraph("d067d407-cf73-4174-a9c1-d91fb60d64d0", "2025-07-14")
+print(result)
+```
+
+### 利用可能なエンドポイント
+
+| エンドポイント | メソッド | 説明 | パラメータ |
+|---------------|---------|------|-----------|
+| `/health` | GET | ヘルスチェック | なし |
+| `/analyze/chatgpt` | POST | ChatGPT中継 | `prompt` |
+| `/analyze-vibegraph-supabase` | POST | VibeGraph生成 | `device_id`, `date` |
+| `/docs` | GET | Swagger UI | なし |
+| `/redoc` | GET | ReDoc | なし |
+
+### APIドキュメント
+
+- **Swagger UI**: `https://api.hey-watch.me/vibe-scorer/docs`
+- **ReDoc**: `https://api.hey-watch.me/vibe-scorer/redoc`
+
+### セキュリティ設定
+
+- ✅ HTTPS対応（SSL証明書あり）
+- ✅ CORS設定済み
+- ✅ 適切なヘッダー設定
+- ✅ レート制限対応（Nginxレベル）
+
+---
+
 **開発者**: WatchMe VibeGraph API Team  
-**バージョン**: 3.0.0  
-**最終更新**: 2025-07-14  
-**主な変更**: ローカルモード・Vault連携削除、Supabase統合一本化、Docker/systemdデプロイメント追加
+**バージョン**: 3.1.0  
+**最終更新**: 2025-07-15  
+**主な変更**: 外部URL公開、Nginxリバースプロキシ設定、ヘルスチェック修正
