@@ -27,6 +27,11 @@ Supabase統合版の心理グラフ(VibeGraph)生成・ChatGPT中継APIサービ
 
 ## 📋 更新履歴
 
+### 2025-07-29 - バージョン 3.2.0
+- **モデル指定方法の変更**: デフォルト値を削除し、環境変数での明示的な指定を必須化
+- **現在のモデル**: `o4-mini`を使用
+- **エラーハンドリング改善**: 環境変数未設定時に明確なエラーメッセージを表示
+
 ### 2025-07-15 - バージョン 3.1.0
 - **外部URL公開**: `https://api.hey-watch.me/vibe-scorer/` で外部アクセス可能
 - **Nginxリバースプロキシ設定**: SSL/HTTPS対応、CORS設定完了
@@ -70,8 +75,8 @@ OPENAI_API_KEY=sk-your-openai-api-key-here
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-anon-key
 
-# オプション: モデル指定（デフォルト: gpt-4）
-OPENAI_MODEL=gpt-4
+# 必須: モデル指定
+OPENAI_MODEL=o4-mini  # 現在設定されているモデル
 ```
 
 ### 3. 開発サーバー起動
@@ -269,7 +274,7 @@ APIの稼働状況と設定情報を確認
 {
   "status": "healthy",
   "timestamp": "2025-07-14T05:46:31.093872",
-  "openai_model": "gpt-4"
+  "openai_model": "o4-mini"
 }
 ```
 
@@ -463,7 +468,7 @@ supabase==2.3.4
 export OPENAI_API_KEY="your-production-key"
 export SUPABASE_URL="https://your-project.supabase.co"
 export SUPABASE_KEY="your-anon-key"
-export OPENAI_MODEL="gpt-4"
+export OPENAI_MODEL="o4-mini"  # 必須: 使用するOpenAIモデルを指定
 
 # サーバー起動（本番モード）
 uvicorn main:app --host 0.0.0.0 --port 8002

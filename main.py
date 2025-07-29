@@ -18,7 +18,9 @@ load_dotenv()
 from supabase_client import SupabaseClient
 
 # 設定
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL")
+if not OPENAI_MODEL:
+    raise ValueError("OPENAI_MODEL環境変数が設定されていません。.envファイルにOPENAI_MODELを設定してください。")
 
 # OpenAI クライアントの初期化
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
