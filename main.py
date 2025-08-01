@@ -223,7 +223,21 @@ async def relay_to_chatgpt(request: PromptRequest):
         return processed_data
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"ChatGPT APIでエラーが発生しました: {str(e)}")
+        import traceback
+        error_details = {
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc().split('\n')[-5:]
+        }
+        print(f"❌ ERROR in relay_to_chatgpt: {error_details}")
+        
+        raise HTTPException(
+            status_code=500, 
+            detail={
+                "message": "ChatGPT APIでエラーが発生しました",
+                "error_details": error_details
+            }
+        )
 
 @app.get("/health")
 async def health_check():
@@ -242,25 +256,34 @@ async def analyze_vibegraph_supabase(request: VibeGraphRequest):
     """
     try:
         device_id = request.device_id
-        date = request.date or datetime.now().strftime("%Y-%m-%d")
+        
+        # 日付パラメータは必須
+        if not request.date:
+            raise HTTPException(
+                status_code=400,
+                detail="date parameter is required"
+            )
+        
+        search_date = request.date  # 検索用の日付
         
         processing_log = {
             "start_time": datetime.now().isoformat(),
             "mode": "supabase",
             "processing_steps": [],
             "complete": False,
-            "warnings": []
+            "warnings": [],
+            "search_date": search_date
         }
         
         # Supabaseクライアントの取得
         supabase = get_supabase_client()
         
         # 1) vibe_whisper_promptテーブルからプロンプト取得
-        prompt_data = await supabase.get_vibe_whisper_prompt(device_id, date)
+        prompt_data = await supabase.get_vibe_whisper_prompt(device_id, search_date)
         if prompt_data is None:
             raise HTTPException(
                 status_code=404,
-                detail=f"プロンプトが見つかりません: device_id={device_id}, date={date}"
+                detail=f"プロンプトが見つかりません: device_id={device_id}, date={search_date}"
             )
         processing_log["processing_steps"].append("vibe_whisper_promptからプロンプト取得完了")
         
@@ -269,6 +292,12 @@ async def analyze_vibegraph_supabase(request: VibeGraphRequest):
                 status_code=400, 
                 detail="プロンプトデータに'prompt'フィールドが見つかりません"
             )
+        
+        # 実際のデータの日付を取得（prompt_dataの日付を優先）
+        actual_date = prompt_data.get('date', search_date)
+        if actual_date != search_date:
+            processing_log["warnings"].append(f"検索日付({search_date})と実データ日付({actual_date})が異なります")
+            processing_log["actual_date"] = actual_date
         
         # 2) ChatGPT処理（リトライ付き）
         analysis_result = await call_chatgpt_with_retry(prompt_data["prompt"])
@@ -292,7 +321,7 @@ async def analyze_vibegraph_supabase(request: VibeGraphRequest):
         
         save_success = await supabase.save_to_vibe_whisper_summary(
             device_id=device_id,
-            target_date=date,
+            target_date=actual_date,
             vibe_scores=vibe_scores,
             average_score=validated_data.get("averageScore", 0.0),
             positive_hours=validated_data.get("positiveHours", 0.0),
@@ -318,7 +347,8 @@ async def analyze_vibegraph_supabase(request: VibeGraphRequest):
             "status": final_status,
             "message": "Supabase統合心理グラフ(VibeGraph)処理が完了しました" if final_status == "success" else "処理中にエラーが発生しました",
             "device_id": device_id,
-            "date": date,
+            "date": actual_date,
+            "search_date": search_date,
             "database_save": save_success,
             "processed_at": datetime.now().isoformat(),
             "processing_log": processing_log,
@@ -341,9 +371,25 @@ async def analyze_vibegraph_supabase(request: VibeGraphRequest):
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        error_details = {
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc().split('\n')[-5:],  # 最後の5行のみ
+            "device_id": device_id,
+            "search_date": search_date,
+            "processing_step": processing_log.get("processing_steps", [])[-1] if processing_log.get("processing_steps") else "初期化前"
+        }
+        
+        # エラーログを出力
+        print(f"❌ ERROR in analyze_vibegraph_supabase: {error_details}")
+        
         raise HTTPException(
             status_code=500, 
-            detail=f"Supabase統合心理グラフ(VibeGraph)処理中にエラーが発生しました: {str(e)}"
+            detail={
+                "message": "Supabase統合心理グラフ(VibeGraph)処理中にエラーが発生しました",
+                "error_details": error_details
+            }
         )
 
 if __name__ == "__main__":
