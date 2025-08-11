@@ -3,6 +3,7 @@ Supabase Client for vibe_whisper_prompt and vibe_whisper_summary tables
 """
 
 import os
+import math
 from typing import Dict, Any, Optional, List
 from supabase import create_client, Client
 from datetime import datetime
@@ -77,19 +78,61 @@ class SupabaseClient:
             bool: 保存成功時True
         """
         try:
+            # NaN/Infinity値をNoneに変換する関数
+            def sanitize_value(value):
+                if isinstance(value, float):
+                    if math.isnan(value) or math.isinf(value):
+                        return None
+                return value
+            
+            def sanitize_list(lst):
+                if lst is None:
+                    return []
+                return [sanitize_value(item) if not isinstance(item, dict) else sanitize_dict(item) for item in lst]
+            
+            def sanitize_dict(d):
+                if d is None:
+                    return {}
+                result = {}
+                for key, value in d.items():
+                    if isinstance(value, list):
+                        result[key] = sanitize_list(value)
+                    elif isinstance(value, dict):
+                        result[key] = sanitize_dict(value)
+                    else:
+                        result[key] = sanitize_value(value)
+                return result
+            
+            # データをサニタイズ
             data = {
                 'device_id': device_id,
                 'date': target_date,
-                'vibe_scores': vibe_scores,  # JSONBフィールドにリストを直接保存
-                'average_score': average_score,
-                'positive_hours': positive_hours,
-                'negative_hours': negative_hours,
-                'neutral_hours': neutral_hours,
-                'insights': insights,  # JSONBフィールドにリストを直接保存
-                'vibe_changes': vibe_changes,  # JSONBフィールドにリストを直接保存
+                'vibe_scores': sanitize_list(vibe_scores),  # NaN/InfinityをNoneに変換
+                'average_score': sanitize_value(average_score),
+                'positive_hours': sanitize_value(positive_hours),
+                'negative_hours': sanitize_value(negative_hours),
+                'neutral_hours': sanitize_value(neutral_hours),
+                'insights': insights if insights else [],  # Noneの場合は空リスト
+                'vibe_changes': sanitize_list(vibe_changes) if vibe_changes else [],  # NaN/InfinityをNoneに変換
                 'processed_at': datetime.now().isoformat(),
-                'processing_log': processing_log  # JSONBフィールドに辞書を直接保存
+                'processing_log': sanitize_dict(processing_log) if processing_log else {}  # NaN/InfinityをNoneに変換
             }
+            
+            # デバッグ用：保存するデータを確認
+            import json
+            print(f"📝 Saving data to vibe_whisper_summary:")
+            print(f"   device_id: {data['device_id']}")
+            print(f"   date: {data['date']}")
+            print(f"   vibe_scores length: {len(data['vibe_scores']) if data['vibe_scores'] else 0}")
+            print(f"   average_score: {data['average_score']}")
+            
+            # JSONシリアライズ可能か確認
+            try:
+                json.dumps(data)
+            except (TypeError, ValueError) as json_error:
+                print(f"❌ JSON serialization error: {json_error}")
+                print(f"   Problematic data: {data}")
+                raise ValueError(f"データがJSON形式に変換できません: {json_error}")
             
             # UPSERT (既存レコードがあれば更新、なければ挿入)
             response = self.client.table('vibe_whisper_summary').upsert(data).execute()
