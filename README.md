@@ -27,6 +27,12 @@ Supabase統合版の心理グラフ(VibeGraph)生成・ChatGPT中継APIサービ
 
 ## 📋 更新履歴
 
+### 2025-08-29 - バージョン 3.3.1
+- **watchme-networkインフラ管理体制への移行**: docker-compose.ymlに`external: true`設定を追加
+- **ネットワーク設定の明示化**: 本番環境で既に接続済みのwatchme-networkを設定ファイルに反映
+- **systemd依存関係の追加**: watchme-infrastructure.serviceへの依存を設定（watchme-server-configs）
+- **安定性向上**: 全マイクロサービス間の通信を統一ネットワークで保証
+
 ### 2025-08-01 - バージョン 3.3.0
 - **日付処理の改善**: 音声ファイルの実際の記録日時を優先使用するように修正
 - **データ整合性の向上**: `vibe_whisper_prompt`テーブルの日付を真実のデータとして扱う
