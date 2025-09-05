@@ -1,4 +1,4 @@
-# VibeGraph Generation API
+# Vibe Scorer API(ChatGPT Gateway)
 
 Supabase統合版の心理グラフ(VibeGraph)生成・ChatGPT中継APIサービス
 
@@ -12,20 +12,41 @@ Supabase統合版の心理グラフ(VibeGraph)生成・ChatGPT中継APIサービ
 
 ## 🎯 概要
 
-このAPIは、ChatGPTとの中継機能と心理グラフ(VibeGraph)生成機能を提供するFastAPIベースのサービスです。Supabaseデータベースとの統合により、音声転写データから心理状態のタイムラインを生成します。
+このAPIは、受け取ったPromptをChatGPTへと中継し、返ってきた値を心理グラフ(VibeGraph)の生成に使用するJSONへと変換するFastAPIベースのサービスです。Supabaseデータベースとの統合により、発話データから心理グラフ、気分スコアを生成します。
+
+## 🤖 使用モデル情報
+
+**現在使用中のAIモデル**: `gpt-5-nano`
+
+### モデル変更履歴
+- **2025-09-05**: `o4-mini` → `gpt-5-nano` (検証用設定)
+- **2025-07-29**: デフォルト値削除、環境変数での明示的指定を必須化
+- **初期設定**: `o4-mini`
+
+### モデル設定方法
+環境変数 `OPENAI_MODEL` で指定：
+```bash
+# .envファイル
+OPENAI_MODEL=gpt-5-nano
+```
 
 ## ✨ 主要機能
 
 - **ChatGPT中継**: 任意のプロンプトをChatGPT APIに中継
-- **心理グラフ(VibeGraph)生成**: 音声転写データから48時間分の心理状態スコアを生成
+- **心理グラフ(VibeGraph)生成**: 音声転写データから30分区切り、24時間、計48ブロックの心理スコアを生成
 - **Supabase統合**: `vibe_whisper_prompt`テーブルから読み込み、`vibe_whisper_summary`テーブルに保存
-- **Docker対応**: 本番環境でのコンテナ化デプロイメント
+- **Docker対応**: ECRを使ったデプロイ
 - **systemd統合**: 自動起動・再起動機能
 - **リトライ機能**: OpenAI API呼び出しの安定性確保
 - **NaN値処理**: 欠損データの適切な処理
 - **構造バリデーション**: データ整合性の自動チェック
 
 ## 📋 更新履歴
+
+### 2025-09-05 - バージョン 3.3.2
+- **OpenAIモデル変更**: `o4-mini` → `gpt-5-nano` に変更
+- **検証用モデル設定**: モデル切り替えによる性能評価を実施
+- **READMEモデル情報追加**: 使用モデル情報セクションを新設
 
 ### 2025-08-29 - バージョン 3.3.1
 - **watchme-networkインフラ管理体制への移行**: docker-compose.ymlに`external: true`設定を追加
@@ -88,7 +109,7 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-anon-key
 
 # 必須: モデル指定
-OPENAI_MODEL=o4-mini  # 現在設定されているモデル
+OPENAI_MODEL=gpt-5-nano  # 現在設定されているモデル
 ```
 
 ### 3. 開発サーバー起動
@@ -109,6 +130,135 @@ curl http://localhost:8002/health
 
 # ヘルスチェック（本番環境）
 curl https://api.hey-watch.me/vibe-scorer/health
+```
+
+## 📌 API エンドポイント
+
+### エンドポイント1
+
+| エンドポイント | メソッド | 説明 |
+|--------------|---------|------|
+| `/` | GET | ルートエンドポイント |
+| `/health` | GET | ヘルスチェック |
+| `/analyze/chatgpt` | POST | 任意のプロンプトをChatGPTに中継 |
+| `/analyze-vibegraph-supabase` | POST | 1日分の心理グラフ生成（48タイムブロック統合） |
+
+### エンドポイント2 タイムブロック分析エンドポイント
+
+| エンドポイント | メソッド | 説明 | 保存先 |
+|--------------|---------|------|---------|
+| `/analyze-timeblock` | POST | タイムブロック単位の分析処理 | dashboardテーブル |
+
+#### タイムブロック分析の使用方法
+
+```bash
+# タイムブロック分析（ChatGPT処理＋DB保存）
+curl -X POST http://localhost:8002/analyze-timeblock \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "分析用プロンプト",
+    "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
+    "date": "2025-08-31",
+    "time_block": "17-00"
+  }'
+```
+
+#### レスポンス形式
+
+```json
+{
+  "status": "success",
+  "message": "タイムブロック分析が完了しました（DB保存成功）",
+  "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
+  "date": "2025-08-31",
+  "time_block": "17-00",
+  "analysis_result": {
+    "time_block": "17-00",
+    "summary": "30分間の状況説明",
+    "vibe_score": -30,
+    "confidence_score": 0.75,
+    "key_observations": ["観察点1", "観察点2"],
+    "detected_mood": "frustrated",
+    "detected_activities": ["活動1", "活動2"],
+    "context_notes": "時間帯から推測される状況"
+  },
+  "database_save": true,
+  "processed_at": "2025-09-01T17:00:00.000Z",
+  "model_used": "gpt-5-nano"
+}
+```
+
+## 🔄 プロンプト生成APIとの連携
+
+タイムブロック分析は、プロンプト生成APIと連携して高精度な心理分析を実現します：
+
+### 処理フロー
+
+```
+1. プロンプト生成API (api_gen-prompt_mood-chart_v1)
+   ├─ /generate-timeblock-prompt-v1 (Whisperのみ)
+   └─ /generate-timeblock-prompt-v2 (Whisper + YAMNet)
+           ↓
+   生成されたプロンプト
+           ↓
+2. ChatGPT処理API (api_gpt_v1) 
+   └─ /analyze-timeblock
+           ↓
+3. dashboardテーブル
+   ├─ prompt: 生成されたプロンプト
+   ├─ summary: ChatGPT分析結果のサマリー
+   ├─ vibe_score: 感情スコア (-100〜100)
+   └─ analysis_result: 完全なJSON応答 (JSONB)
+```
+
+### 連携例（Python）
+
+```python
+import requests
+
+# 1. プロンプト生成
+prompt_response = requests.get(
+    "http://localhost:8009/generate-timeblock-prompt-v2",
+    params={
+        "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
+        "date": "2025-08-31",
+        "time_block": "17-00"
+    }
+)
+
+# 2. 生成されたプロンプトでChatGPT分析＋保存
+if prompt_response.status_code == 200:
+    # dashboardテーブルからプロンプトを取得
+    # または prompt_response から直接取得
+    
+    analysis_response = requests.post(
+        "http://localhost:8002/analyze-timeblock",
+        json={
+            "prompt": prompt_text,
+            "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
+            "date": "2025-08-31",
+            "time_block": "17-00"
+        }
+    )
+```
+
+### データベース構造（dashboardテーブル）
+
+```sql
+-- スキーマ更新済み (2025-09-01)
+CREATE TABLE public.dashboard (
+    device_id UUID NOT NULL,
+    date DATE NOT NULL,
+    time_block VARCHAR(5) NOT NULL,
+    prompt TEXT,                    -- プロンプト生成APIから
+    summary TEXT,                    -- ChatGPT分析結果
+    vibe_score DOUBLE PRECISION,    -- 感情スコア
+    analysis_result JSONB,           -- 完全なJSON応答（新規追加）
+    processed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (device_id, date, time_block)
+);
 ```
 
 ## 🐳 Docker デプロイメント
@@ -142,7 +292,7 @@ docker-compose down
 # プロジェクトディレクトリをEC2に作成
 ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "mkdir -p ~/api_gpt_v1"
 
-# 必要なファイルをコピー
+# 必要なファイルをコピー（.envファイルも含む）
 scp -i ~/watchme-key.pem \
   Dockerfile \
   docker-compose.yml \
@@ -150,6 +300,7 @@ scp -i ~/watchme-key.pem \
   supabase_client.py \
   requirements.txt \
   README.md \
+  .env \
   ubuntu@3.24.16.82:~/api_gpt_v1/
 ```
 
@@ -162,13 +313,12 @@ ssh -i ~/watchme-key.pem ubuntu@3.24.16.82
 # api_gpt_v1ディレクトリに移動
 cd ~/api_gpt_v1
 
-# .envファイルを作成（実際の値は環境変数から取得）
-cat > .env << 'EOF'
-OPENAI_API_KEY=実際のOpenAI APIキーを入力
-SUPABASE_URL=https://qvtlwotzuzbavrzqhyvt.supabase.co
-SUPABASE_KEY=実際のSupabaseキーを入力
-OPENAI_MODEL=o4-mini
-EOF
+# .envファイルがコピーされていることを確認
+ls -la .env
+
+# 必要に応じて.envファイルの内容を確認・修正
+# 注意: .envファイルは手順1でコピー済みなので、APIキーは既に設定されています
+cat .env
 ```
 
 #### 3. Dockerコンテナのビルドと起動
@@ -291,8 +441,8 @@ APIの稼働状況と設定情報を確認
 ```json
 {
   "status": "healthy",
-  "timestamp": "2025-07-14T05:46:31.093872",
-  "openai_model": "o4-mini"
+  "timestamp": "2025-09-05T10:00:00.000000",
+  "openai_model": "gpt-5-nano"
 }
 ```
 
@@ -507,7 +657,7 @@ supabase==2.3.4
 OPENAI_API_KEY="実際のAPIキー"
 SUPABASE_URL="https://qvtlwotzuzbavrzqhyvt.supabase.co"
 SUPABASE_KEY="実際のSupabaseキー"
-OPENAI_MODEL="o4-mini"  # 必須: 使用するOpenAIモデルを指定
+OPENAI_MODEL="gpt-5-nano"  # 必須: 使用するOpenAIモデルを指定
 
 # サーバー起動（本番モード）
 uvicorn main:app --host 0.0.0.0 --port 8002
@@ -539,21 +689,9 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
 - OpenAI API接続状況
 - Supabase接続状況
 
-## 🤝 貢献
-
-1. フォークしてください
-2. フィーチャーブランチを作成してください (`git checkout -b feature/AmazingFeature`)
-3. 変更をコミットしてください (`git commit -m 'Add some AmazingFeature'`)
-4. ブランチにプッシュしてください (`git push origin feature/AmazingFeature`)
-5. プルリクエストを開いてください
-
 ## 📄 ライセンス
 
 このプロジェクトはMITライセンスの下で公開されています。
-
-## 📞 サポート
-
-問題や質問がある場合は、GitHubのIssuesページでお知らせください。
 
 ## 🧪 テスト実績
 
@@ -657,7 +795,5 @@ print(result)
 
 ---
 
-**開発者**: WatchMe VibeGraph API Team  
+**開発者**: WatchMe
 **バージョン**: 3.1.0  
-**最終更新**: 2025-07-15  
-**主な変更**: 外部URL公開、Nginxリバースプロキシ設定、ヘルスチェック修正
