@@ -58,6 +58,17 @@ class VibeGraphRequest(BaseModel):
     device_id: str
     date: Optional[str] = None
 
+class DashboardSummaryRequest(BaseModel):
+    device_id: str
+    date: str
+
+class TimeBlockAnalysisRequest(BaseModel):
+    """タイムブロック単位の分析リクエスト"""
+    prompt: str
+    device_id: Optional[str] = None
+    date: Optional[str] = None
+    time_block: Optional[str] = None
+
 def extract_json_from_response(raw_response: str) -> Dict[str, Any]:
     """ChatGPTの応答からJSONを抽出し、改善された処理を適用する"""
     
@@ -388,6 +399,246 @@ async def analyze_vibegraph_supabase(request: VibeGraphRequest):
             status_code=500, 
             detail={
                 "message": "Supabase統合心理グラフ(VibeGraph)処理中にエラーが発生しました",
+                "error_details": error_details
+            }
+        )
+
+@app.post("/analyze-timeblock")
+async def analyze_timeblock(request: TimeBlockAnalysisRequest):
+    """
+    タイムブロック単位の分析処理 + dashboardテーブルへの保存
+    """
+    try:
+        # 必須パラメータのチェック
+        if not request.device_id or not request.date or not request.time_block:
+            raise HTTPException(
+                status_code=400,
+                detail="device_id, date, time_block は必須パラメータです"
+            )
+        
+        print(f"\n🔍 タイムブロック分析開始（保存あり）")
+        print(f"  - Device ID: {request.device_id}")
+        print(f"  - Date: {request.date}")
+        print(f"  - Time Block: {request.time_block}")
+        print(f"  - Prompt length: {len(request.prompt)} chars")
+        
+        # ChatGPT処理（既存のロジックを使用）
+        print("📤 ChatGPTに送信中...")
+        analysis_result = await call_chatgpt_with_retry(request.prompt)
+        print(f"✅ ChatGPT処理完了")
+        
+        # 結果をターミナルに表示
+        print("\n" + "="*60)
+        print("📊 分析結果:")
+        print("="*60)
+        print(json.dumps(analysis_result, ensure_ascii=False, indent=2))
+        print("="*60 + "\n")
+        
+        # Supabaseクライアントの取得
+        supabase = get_supabase_client()
+        
+        # dashboardテーブルへの保存用データを準備
+        dashboard_data = {
+            'device_id': request.device_id,
+            'date': request.date,
+            'time_block': request.time_block,
+            'summary': analysis_result.get('summary'),
+            'vibe_score': analysis_result.get('vibe_score'),
+            'analysis_result': json.dumps(analysis_result, ensure_ascii=False),  # JSONBとして保存
+            'processed_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        # dashboardテーブルに保存（UPSERT）
+        print("💾 dashboardテーブルに保存中...")
+        try:
+            result = supabase.client.table('dashboard').upsert(dashboard_data).execute()
+            print(f"✅ dashboardテーブルへの保存完了")
+            save_success = True
+        except Exception as e:
+            print(f"❌ dashboardテーブルへの保存失敗: {e}")
+            save_success = False
+            # 保存に失敗してもレスポンスは返す
+        
+        return {
+            "status": "success" if save_success else "partial_success",
+            "message": "タイムブロック分析が完了しました" + ("（DB保存成功）" if save_success else "（DB保存失敗）"),
+            "device_id": request.device_id,
+            "date": request.date,
+            "time_block": request.time_block,
+            "analysis_result": analysis_result,
+            "database_save": save_success,
+            "processed_at": datetime.now().isoformat(),
+            "model_used": OPENAI_MODEL
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = {
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc()
+        }
+        
+        print(f"❌ ERROR in analyze_timeblock_and_save: {error_details}")
+        
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "タイムブロック分析中にエラーが発生しました",
+                "error_details": error_details
+            }
+        )
+
+@app.post("/analyze-dashboard-summary")
+async def analyze_dashboard_summary(request: DashboardSummaryRequest):
+    """
+    dashboard_summaryテーブルのpromptフィールドを使用してChatGPT分析を行い、
+    結果をanalysis_resultフィールドに保存
+    """
+    try:
+        device_id = request.device_id
+        target_date = request.date
+        
+        print(f"\n🔍 Dashboard Summary分析開始")
+        print(f"  - Device ID: {device_id}")
+        print(f"  - Date: {target_date}")
+        
+        processing_log = {
+            "start_time": datetime.now().isoformat(),
+            "mode": "dashboard_summary",
+            "processing_steps": [],
+            "warnings": []
+        }
+        
+        # Supabaseクライアントの取得
+        supabase = get_supabase_client()
+        
+        # 1) dashboard_summaryテーブルからデータ取得
+        dashboard_data = await supabase.get_dashboard_summary_prompt(device_id, target_date)
+        if dashboard_data is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dashboard summaryデータが見つかりません: device_id={device_id}, date={target_date}"
+            )
+        processing_log["processing_steps"].append("dashboard_summaryからデータ取得完了")
+        
+        # promptフィールドの確認
+        prompt_data = dashboard_data.get('prompt')
+        if not prompt_data:
+            raise HTTPException(
+                status_code=400,
+                detail="dashboard_summaryにpromptデータが存在しません"
+            )
+        
+        # promptがJSONBの場合、文字列に変換
+        if isinstance(prompt_data, dict):
+            # promptがJSON形式の場合、適切に文字列化
+            if 'content' in prompt_data:
+                prompt_text = prompt_data['content']
+            elif 'text' in prompt_data:
+                prompt_text = prompt_data['text']
+            else:
+                # JSON全体を文字列として使用
+                prompt_text = json.dumps(prompt_data, ensure_ascii=False, indent=2)
+        elif isinstance(prompt_data, list):
+            # リスト形式の場合、結合
+            prompt_text = "\n".join([str(item) for item in prompt_data])
+        else:
+            prompt_text = str(prompt_data)
+        
+        print(f"  - Prompt length: {len(prompt_text)} chars")
+        processing_log["processing_steps"].append(f"プロンプト準備完了（{len(prompt_text)}文字）")
+        
+        # 2) ChatGPT処理（リトライ付き）
+        print("📤 ChatGPTに送信中...")
+        analysis_result = await call_chatgpt_with_retry(prompt_text)
+        processing_log["processing_steps"].append("ChatGPT処理完了")
+        print(f"✅ ChatGPT処理完了")
+        
+        # 結果をターミナルに表示
+        print("\n" + "="*60)
+        print("📊 分析結果:")
+        print("="*60)
+        print(json.dumps(analysis_result, ensure_ascii=False, indent=2))
+        print("="*60 + "\n")
+        
+        # 3) analysis_resultから情報を抽出（オプション）
+        vibe_scores = None
+        average_vibe = None
+        insights = None
+        
+        # emotionScoresやvibeScoresがある場合は抽出
+        if 'emotionScores' in analysis_result:
+            vibe_scores = analysis_result['emotionScores']
+        elif 'vibeScores' in analysis_result:
+            vibe_scores = analysis_result['vibeScores']
+        
+        # averageScoreやaverageVibeがある場合は抽出
+        if 'averageScore' in analysis_result:
+            average_vibe = analysis_result['averageScore']
+        elif 'averageVibe' in analysis_result:
+            average_vibe = analysis_result['averageVibe']
+        
+        # insightsがある場合は抽出
+        if 'insights' in analysis_result:
+            insights = analysis_result['insights']
+        
+        # 4) dashboard_summaryテーブルのanalysis_resultフィールドを更新
+        print("💾 dashboard_summaryテーブルに保存中...")
+        save_success = await supabase.update_dashboard_summary_analysis(
+            device_id=device_id,
+            target_date=target_date,
+            analysis_result=analysis_result,
+            vibe_scores=vibe_scores,
+            average_vibe=average_vibe,
+            insights=insights
+        )
+        
+        if save_success:
+            processing_log["processing_steps"].append("dashboard_summaryテーブルへの保存完了")
+            print(f"✅ dashboard_summaryテーブルへの保存完了")
+            final_status = "success"
+        else:
+            processing_log["processing_steps"].append("dashboard_summaryテーブルへの保存失敗")
+            processing_log["warnings"].append("データベースへの保存に失敗しました")
+            print(f"❌ dashboard_summaryテーブルへの保存失敗")
+            final_status = "failed"
+        
+        processing_log["end_time"] = datetime.now().isoformat()
+        
+        return {
+            "status": final_status,
+            "message": "Dashboard Summary分析が完了しました" if final_status == "success" else "処理中にエラーが発生しました",
+            "device_id": device_id,
+            "date": target_date,
+            "database_save": save_success,
+            "processed_at": datetime.now().isoformat(),
+            "model_used": OPENAI_MODEL,
+            "processing_log": processing_log,
+            "analysis_result": analysis_result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = {
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc().split('\n')[-5:],
+            "device_id": device_id,
+            "date": target_date
+        }
+        
+        print(f"❌ ERROR in analyze_dashboard_summary: {error_details}")
+        
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Dashboard Summary処理中にエラーが発生しました",
                 "error_details": error_details
             }
         )

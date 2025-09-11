@@ -43,6 +43,12 @@ OPENAI_MODEL=gpt-5-nano
 
 ## 📋 更新履歴
 
+### 2025-09-11 - バージョン 3.4.0
+- **新エンドポイント追加**: `/analyze-dashboard-summary` - dashboard_summaryテーブルと連携
+- **機能追加**: dashboard_summaryテーブルのpromptフィールドからプロンプトを取得し、ChatGPT分析後にanalysis_resultフィールドに保存
+- **Supabaseクライアント拡張**: dashboard_summary用のメソッドを追加
+- **本番環境デプロイ完了**: EC2環境で正常動作確認済み
+
 ### 2025-09-05 - バージョン 3.3.2
 - **OpenAIモデル変更**: `o4-mini` → `gpt-5-nano` に変更
 - **検証用モデル設定**: モデル切り替えによる性能評価を実施
@@ -76,6 +82,23 @@ OPENAI_MODEL=gpt-5-nano
 - EC2_BASE_URL環境変数を削除
 - requirements.txtの依存関係を修正（httpx==0.24.1, gotrue==1.3.0を固定）
 - Docker/systemdによる本番環境デプロイメント方法を追加
+
+## ⚠️ 開発環境構築の注意事項
+
+### Python バージョンの互換性
+- **推奨バージョン**: Python 3.11
+- **互換性の問題**: Python 3.13では`pydantic-core`のビルドで問題が発生する可能性があります
+- **対処法**: 
+  1. 仮想環境を使用することを強く推奨
+  2. システムパッケージを直接使用する場合は`--break-system-packages`フラグが必要
+  3. 本番環境ではDockerコンテナを使用するため、ローカル環境の問題は影響しません
+
+### 必要なシステムパッケージ
+以下のパッケージがシステムレベルでインストールされていない場合、手動でインストールが必要です：
+```bash
+pip3 install openai --user --break-system-packages
+pip3 install tenacity --user --break-system-packages
+```
 
 ## 🚀 クイックスタート
 
@@ -142,6 +165,7 @@ curl https://api.hey-watch.me/vibe-scorer/health
 | `/health` | GET | ヘルスチェック |
 | `/analyze/chatgpt` | POST | 任意のプロンプトをChatGPTに中継 |
 | `/analyze-vibegraph-supabase` | POST | 1日分の心理グラフ生成（48タイムブロック統合） |
+| `/analyze-dashboard-summary` | POST | Dashboard Summary分析（新規） |
 
 ### エンドポイント2 タイムブロック分析エンドポイント
 
@@ -185,6 +209,53 @@ curl -X POST http://localhost:8002/analyze-timeblock \
   "database_save": true,
   "processed_at": "2025-09-01T17:00:00.000Z",
   "model_used": "gpt-5-nano"
+}
+```
+
+### エンドポイント3 Dashboard Summary分析エンドポイント
+
+| エンドポイント | メソッド | 説明 | データソース | 保存先 |
+|--------------|---------|------|------------|--------|
+| `/analyze-dashboard-summary` | POST | Dashboard Summary統合分析 | dashboard_summaryテーブル | 同テーブルのanalysis_result |
+
+#### Dashboard Summary分析の使用方法
+
+```bash
+# Dashboard Summary分析（ChatGPT処理＋更新）
+curl -X POST http://localhost:8002/analyze-dashboard-summary \
+  -H "Content-Type: application/json" \
+  -d '{
+    "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
+    "date": "2025-09-11"
+  }'
+```
+
+#### レスポンス形式
+
+```json
+{
+  "status": "success",
+  "message": "Dashboard Summary分析が完了しました",
+  "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
+  "date": "2025-09-11",
+  "database_save": true,
+  "processed_at": "2025-09-11T17:23:26.945093",
+  "model_used": "gpt-5-nano",
+  "processing_log": {
+    "processing_steps": [
+      "dashboard_summaryからデータ取得完了",
+      "プロンプト準備完了（4721文字）",
+      "ChatGPT処理完了",
+      "dashboard_summaryテーブルへの保存完了"
+    ]
+  },
+  "analysis_result": {
+    "current_time": "15:00",
+    "time_context": "午後",
+    "cumulative_evaluation": "1日の総合評価テキスト",
+    "mood_trajectory": "positive_trend",
+    "current_state_score": 36
+  }
 }
 ```
 
@@ -242,8 +313,9 @@ if prompt_response.status_code == 200:
     )
 ```
 
-### データベース構造（dashboardテーブル）
+### データベース構造
 
+#### dashboardテーブル
 ```sql
 -- スキーマ更新済み (2025-09-01)
 CREATE TABLE public.dashboard (
@@ -258,6 +330,25 @@ CREATE TABLE public.dashboard (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     PRIMARY KEY (device_id, date, time_block)
+);
+```
+
+#### dashboard_summaryテーブル（新規対応）
+```sql
+-- Dashboard Summary用テーブル (2025-09-11対応)
+CREATE TABLE public.dashboard_summary (
+    device_id UUID NOT NULL,
+    date DATE NOT NULL,
+    prompt JSONB NULL,               -- プロンプトデータ（JSONBフォーマット）
+    processed_count INTEGER NULL,
+    last_time_block VARCHAR(5) NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    average_vibe REAL NULL,
+    insights JSONB NULL,
+    analysis_result JSONB NULL,      -- ChatGPT分析結果（新エンドポイントで更新）
+    vibe_scores JSONB NULL,
+    PRIMARY KEY (device_id, date)
 );
 ```
 

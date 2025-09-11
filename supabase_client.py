@@ -147,3 +147,108 @@ class SupabaseClient:
         except Exception as e:
             print(f"❌ Error saving to vibe_whisper_summary: {str(e)}")
             raise e
+    
+    async def get_dashboard_summary_prompt(self, device_id: str, target_date: str) -> Optional[Dict[str, Any]]:
+        """
+        dashboard_summaryテーブルから指定したdevice_idと日付のpromptを取得
+        
+        Args:
+            device_id: デバイスID
+            target_date: 対象日付 (YYYY-MM-DD)
+        
+        Returns:
+            Optional[Dict]: promptデータを含む行データ
+        """
+        try:
+            response = self.client.table('dashboard_summary').select('*').eq('device_id', device_id).eq('date', target_date).execute()
+            
+            if response.data and len(response.data) > 0:
+                print(f"✅ Found dashboard_summary for device_id={device_id}, date={target_date}")
+                return response.data[0]
+            else:
+                print(f"❌ No dashboard_summary found for device_id={device_id}, date={target_date}")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error fetching dashboard_summary: {str(e)}")
+            raise e
+    
+    async def update_dashboard_summary_analysis(
+        self, 
+        device_id: str, 
+        target_date: str,
+        analysis_result: Dict[str, Any],
+        vibe_scores: Optional[List] = None,
+        average_vibe: Optional[float] = None,
+        insights: Optional[List] = None
+    ) -> bool:
+        """
+        dashboard_summaryテーブルのanalysis_resultフィールドを更新
+        
+        Args:
+            device_id: デバイスID
+            target_date: 対象日付 (YYYY-MM-DD)
+            analysis_result: ChatGPTの分析結果
+            vibe_scores: VibeScoresの配列（オプション）
+            average_vibe: 平均Vibeスコア（オプション）
+            insights: インサイト（オプション）
+        
+        Returns:
+            bool: 更新成功時True
+        """
+        try:
+            # NaN/Infinity値をNoneに変換する関数
+            def sanitize_value(value):
+                if isinstance(value, float):
+                    if math.isnan(value) or math.isinf(value):
+                        return None
+                return value
+            
+            def sanitize_dict(d):
+                if d is None:
+                    return {}
+                result = {}
+                for key, value in d.items():
+                    if isinstance(value, list):
+                        result[key] = [sanitize_value(item) if not isinstance(item, dict) else sanitize_dict(item) for item in value]
+                    elif isinstance(value, dict):
+                        result[key] = sanitize_dict(value)
+                    else:
+                        result[key] = sanitize_value(value)
+                return result
+            
+            # 更新データを準備
+            update_data = {
+                'analysis_result': sanitize_dict(analysis_result),
+                'updated_at': datetime.now().isoformat()
+            }
+            
+            # オプションフィールドの追加
+            if vibe_scores is not None:
+                update_data['vibe_scores'] = [sanitize_value(score) for score in vibe_scores]
+            
+            if average_vibe is not None:
+                update_data['average_vibe'] = sanitize_value(average_vibe)
+            
+            if insights is not None:
+                update_data['insights'] = insights
+            
+            # デバッグ用：更新するデータを確認
+            print(f"📝 Updating dashboard_summary:")
+            print(f"   device_id: {device_id}")
+            print(f"   date: {target_date}")
+            print(f"   fields to update: {list(update_data.keys())}")
+            
+            # UPDATE実行
+            response = self.client.table('dashboard_summary').update(update_data).eq('device_id', device_id).eq('date', target_date).execute()
+            
+            if response.data:
+                print(f"✅ Successfully updated dashboard_summary: device_id={device_id}, date={target_date}")
+                return True
+            else:
+                print(f"❌ Failed to update dashboard_summary")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error updating dashboard_summary: {str(e)}")
+            raise e
