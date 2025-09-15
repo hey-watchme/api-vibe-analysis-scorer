@@ -372,104 +372,77 @@ docker-compose down
 
 ### 本番環境（EC2）へのデプロイ
 
-**EC2インスタンス情報:**
-- IPアドレス: `3.24.16.82`
-- ユーザー: `ubuntu`
-- SSHキー: `~/watchme-key.pem`
+このサービスは **AWS ECR** を使用したコンテナデプロイメントで管理されています。
 
-#### 1. 必要なファイルをEC2サーバーにコピー
+#### 🚀 デプロイ手順
+
+##### 1. ローカルでECRへデプロイ
 
 ```bash
-# プロジェクトディレクトリをEC2に作成
-ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "mkdir -p ~/api_gpt_v1"
+# プロジェクトディレクトリに移動
+cd /path/to/api_gpt_v1
 
-# 必要なファイルをコピー（.envファイルも含む）
-scp -i ~/watchme-key.pem \
-  Dockerfile \
-  docker-compose.yml \
-  main.py \
-  supabase_client.py \
-  requirements.txt \
-  README.md \
-  .env \
-  ubuntu@3.24.16.82:~/api_gpt_v1/
+# ECRへイメージをビルド＆プッシュ
+./deploy-ecr.sh
 ```
 
-#### 2. EC2サーバーで環境設定
+このスクリプトは以下を自動で実行します：
+- ECRへのログイン
+- Dockerイメージのビルド（Dockerfile.prod使用）
+- イメージのタグ付け
+- ECRへのプッシュ
+
+##### 2. EC2サーバーでサービス再起動
 
 ```bash
-# EC2にSSH接続
-ssh -i ~/watchme-key.pem ubuntu@3.24.16.82
+# 既存のコンテナが残っている場合は削除
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "docker rm -f api-gpt-v1"
 
-# api_gpt_v1ディレクトリに移動
-cd ~/api_gpt_v1
+# systemdサービスを再起動
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo systemctl restart api-gpt-v1"
 
-# .envファイルがコピーされていることを確認
-ls -la .env
-
-# 必要に応じて.envファイルの内容を確認・修正
-# 注意: .envファイルは手順1でコピー済みなので、APIキーは既に設定されています
-cat .env
+# ステータス確認
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo systemctl status api-gpt-v1"
 ```
 
-#### 3. Dockerコンテナのビルドと起動
+##### 3. 動作確認
 
 ```bash
-# Dockerイメージをビルド
-docker-compose build --no-cache
+# ヘルスチェック（外部URL）
+curl https://api.hey-watch.me/vibe-scorer/health
 
-# コンテナを起動
-docker-compose up -d
+# 期待されるレスポンス
+# {"status":"healthy","timestamp":"2025-09-15T23:49:51.000343","openai_model":"gpt-5-nano"}
+```
 
-# 動作確認
-curl http://localhost:8002/health
+#### 📋 ECR情報
+
+- **レジストリ**: `754724220380.dkr.ecr.ap-southeast-2.amazonaws.com`
+- **リポジトリ**: `watchme-api-vibe-scorer`
+- **イメージURI**: `754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-api-vibe-scorer:latest`
+
+#### 🔧 トラブルシューティング
+
+```bash
+# サービスログの確認
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo journalctl -u api-gpt-v1 -n 50"
+
+# Dockerコンテナのログ確認
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "docker logs api-gpt-v1 --tail 50"
+
+# コンテナの状態確認
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "docker ps | grep api-gpt-v1"
 ```
 
 ## 🔧 systemd による自動起動設定
 
-### 1. systemdサービスファイルの作成
+このサービスは **watchme-server-configs** リポジトリで一元管理されています。
 
-```bash
-sudo tee /etc/systemd/system/api-gpt-v1.service > /dev/null << 'EOF'
-[Unit]
-Description=API GPT v1 Docker Container
-Requires=docker.service
-After=docker.service
+### systemdサービス情報
 
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/home/ubuntu/api_gpt_v1
-ExecStart=/usr/bin/docker-compose up -d
-ExecStop=/usr/bin/docker-compose down
-TimeoutStartSec=0
-Restart=on-failure
-RestartSec=10
-User=ubuntu
-Group=ubuntu
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-### 2. サービスの有効化と起動
-
-```bash
-# systemdデーモンをリロード
-sudo systemctl daemon-reload
-
-# サービスを有効化（自動起動設定）
-sudo systemctl enable api-gpt-v1.service
-
-# サービスを開始
-sudo systemctl start api-gpt-v1.service
-
-# 状態確認
-sudo systemctl status api-gpt-v1.service
-```
-
-## 📊 運用管理
+- **サービス名**: `api-gpt-v1.service`
+- **設定ファイル**: `/home/ubuntu/watchme-server-configs/docker-compose-files/api-gpt-v1-docker-compose.prod.yml`
+- **自動起動**: 有効（EC2再起動時に自動起動）
 
 ### サービス管理コマンド
 
@@ -477,21 +450,20 @@ sudo systemctl status api-gpt-v1.service
 # サービスの状態確認
 sudo systemctl status api-gpt-v1
 
+# サービスの再起動
+sudo systemctl restart api-gpt-v1
+
 # サービスの停止
 sudo systemctl stop api-gpt-v1
 
 # サービスの開始
 sudo systemctl start api-gpt-v1
 
-# サービスの再起動
-sudo systemctl restart api-gpt-v1
-
 # ログの確認（リアルタイム）
 sudo journalctl -u api-gpt-v1 -f
-
-# Dockerコンテナのログ確認
-docker logs -f api-gpt-v1
 ```
+
+## 📊 運用管理
 
 ### 監視とトラブルシューティング
 
@@ -505,11 +477,12 @@ sudo lsof -i :8002
 # APIヘルスチェック
 curl https://api.hey-watch.me/vibe-scorer/health
 
-# Dockerコンテナの再起動
-docker-compose restart
+# ECRから最新イメージを取得
+aws ecr get-login-password --region ap-southeast-2 | \
+  docker login --username AWS --password-stdin \
+  754724220380.dkr.ecr.ap-southeast-2.amazonaws.com
 
-# 全体のリセット（データは保持）
-docker-compose down && docker-compose up -d
+docker pull 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-api-vibe-scorer:latest
 ```
 
 ## 📚 API エンドポイント
@@ -742,30 +715,23 @@ supabase==2.3.4
 
 ## 🚀 デプロイ
 
-### 本番環境設定（EC2インスタンス: 3.24.16.82）
+### 本番環境情報
+
+- **EC2インスタンス**: 3.24.16.82
+- **外部URL**: https://api.hey-watch.me/vibe-scorer/
+- **内部ポート**: 8002
+- **コンテナ管理**: AWS ECR + systemd
+
+### 環境変数設定（.envファイル）
+
 ```bash
-# 環境変数設定（.envファイルで管理）
 OPENAI_API_KEY="実際のAPIキー"
 SUPABASE_URL="https://qvtlwotzuzbavrzqhyvt.supabase.co"
 SUPABASE_KEY="実際のSupabaseキー"
 OPENAI_MODEL="gpt-5-nano"  # 必須: 使用するOpenAIモデルを指定
-
-# サーバー起動（本番モード）
-uvicorn main:app --host 0.0.0.0 --port 8002
 ```
 
-### Docker対応
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY main.py .
-COPY supabase_client.py .
-EXPOSE 8002
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
-```
+デプロイ手順は[本番環境（EC2）へのデプロイ](#本番環境ec2へのデプロイ)セクションを参照してください。
 
 ## 📝 ログ
 
