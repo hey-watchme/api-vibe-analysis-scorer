@@ -1,6 +1,6 @@
 # Vibe Scorer API(ChatGPT Gateway)
 
-Supabase統合版の心理グラフ(VibeGraph)生成・ChatGPT中継APIサービス
+気分(Vibe)(心理グラフ)生成のためのChatGPT中継APIサービス
 
 ## 🌐 外部公開URL
 
@@ -148,8 +148,8 @@ python3 main.py
 ### 4. 動作確認
 
 ```bash
-# ヘルスチェック（ローカル）
-curl http://localhost:8002/health
+# ヘルスチェック（本番環境）
+curl https://api.hey-watch.me/vibe-scorer/health
 
 # ヘルスチェック（本番環境）
 curl https://api.hey-watch.me/vibe-scorer/health
@@ -177,7 +177,7 @@ curl https://api.hey-watch.me/vibe-scorer/health
 
 ```bash
 # タイムブロック分析（ChatGPT処理＋DB保存）
-curl -X POST http://localhost:8002/analyze-timeblock \
+curl -X POST https://api.hey-watch.me/vibe-scorer/analyze-timeblock \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "分析用プロンプト",
@@ -222,7 +222,7 @@ curl -X POST http://localhost:8002/analyze-timeblock \
 
 ```bash
 # Dashboard Summary分析（ChatGPT処理＋更新）
-curl -X POST http://localhost:8002/analyze-dashboard-summary \
+curl -X POST https://api.hey-watch.me/vibe-scorer/analyze-dashboard-summary \
   -H "Content-Type: application/json" \
   -d '{
     "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
@@ -303,7 +303,7 @@ if prompt_response.status_code == 200:
     # または prompt_response から直接取得
     
     analysis_response = requests.post(
-        "http://localhost:8002/analyze-timeblock",
+        "https://api.hey-watch.me/vibe-scorer/analyze-timeblock",
         json={
             "prompt": prompt_text,
             "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
@@ -503,7 +503,7 @@ docker ps | grep api-gpt
 sudo lsof -i :8002
 
 # APIヘルスチェック
-curl http://localhost:8002/health
+curl https://api.hey-watch.me/vibe-scorer/health
 
 # Dockerコンテナの再起動
 docker-compose restart
@@ -516,7 +516,7 @@ docker-compose down && docker-compose up -d
 
 ### 基本情報
 - **本番環境URL**: `https://api.hey-watch.me/vibe-scorer`
-- **ローカルURL**: `http://localhost:8002`
+- **本番環境URL**: `https://api.hey-watch.me/vibe-scorer`
 - **認証**: 不要（OpenAI APIキーは環境変数で設定）
 - **レスポンス形式**: JSON
 
@@ -605,15 +605,15 @@ python3 test_mood_analysis.py
 
 ### 手動テスト例
 
-#### ローカル環境
+#### 本番環境
 ```bash
 # 心理グラフ(VibeGraph)生成 - Supabase統合
-curl -X POST http://localhost:8002/analyze-vibegraph-supabase \
+curl -X POST https://api.hey-watch.me/vibe-scorer/analyze-vibegraph-supabase \
   -H "Content-Type: application/json" \
   -d '{"device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0", "date": "2025-07-14"}'
 
 # 汎用ChatGPT中継
-curl -X POST http://localhost:8002/analyze/chatgpt \
+curl -X POST https://api.hey-watch.me/vibe-scorer/analyze/chatgpt \
   -H "Content-Type: application/json" \
   -d '{"prompt": "あなたのプロンプトをここに入力"}'
 ```

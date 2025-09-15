@@ -443,6 +443,7 @@ async def analyze_timeblock(request: TimeBlockAnalysisRequest):
             'date': request.date,
             'time_block': request.time_block,
             'summary': analysis_result.get('summary'),
+            'behavior': analysis_result.get('behavior'),  # behaviorフィールドを追加
             'vibe_score': analysis_result.get('vibe_score'),
             'analysis_result': json.dumps(analysis_result, ensure_ascii=False),  # JSONBとして保存
             'processed_at': datetime.now().isoformat(),
