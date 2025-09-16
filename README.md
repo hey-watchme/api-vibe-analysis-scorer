@@ -18,12 +18,6 @@
 
 **現在使用中のAIモデル**: `gpt-5-nano`
 
-### モデル変更履歴
-- **2025-09-05**: `o4-mini` → `gpt-5-nano` (検証用設定)
-- **2025-07-29**: デフォルト値削除、環境変数での明示的指定を必須化
-- **初期設定**: `o4-mini`
-
-### モデル設定方法
 環境変数 `OPENAI_MODEL` で指定：
 ```bash
 # .envファイル
@@ -41,47 +35,6 @@ OPENAI_MODEL=gpt-5-nano
 - **NaN値処理**: 欠損データの適切な処理
 - **構造バリデーション**: データ整合性の自動チェック
 
-## 📋 更新履歴
-
-### 2025-09-11 - バージョン 3.4.0
-- **新エンドポイント追加**: `/analyze-dashboard-summary` - dashboard_summaryテーブルと連携
-- **機能追加**: dashboard_summaryテーブルのpromptフィールドからプロンプトを取得し、ChatGPT分析後にanalysis_resultフィールドに保存
-- **Supabaseクライアント拡張**: dashboard_summary用のメソッドを追加
-- **本番環境デプロイ完了**: EC2環境で正常動作確認済み
-
-### 2025-09-05 - バージョン 3.3.2
-- **OpenAIモデル変更**: `o4-mini` → `gpt-5-nano` に変更
-- **検証用モデル設定**: モデル切り替えによる性能評価を実施
-- **READMEモデル情報追加**: 使用モデル情報セクションを新設
-
-### 2025-08-29 - バージョン 3.3.1
-- **watchme-networkインフラ管理体制への移行**: docker-compose.ymlに`external: true`設定を追加
-- **ネットワーク設定の明示化**: 本番環境で既に接続済みのwatchme-networkを設定ファイルに反映
-- **systemd依存関係の追加**: watchme-infrastructure.serviceへの依存を設定（watchme-server-configs）
-- **安定性向上**: 全マイクロサービス間の通信を統一ネットワークで保証
-
-### 2025-08-01 - バージョン 3.3.0
-- **日付処理の改善**: 音声ファイルの実際の記録日時を優先使用するように修正
-- **データ整合性の向上**: `vibe_whisper_prompt`テーブルの日付を真実のデータとして扱う
-- **エラーハンドリング強化**: 日付パラメータを必須化し、欠落時は明確なエラーを返す
-- **トレーサビリティ向上**: 検索日付と実データ日付の両方をログに記録
-
-### 2025-07-29 - バージョン 3.2.0
-- **モデル指定方法の変更**: デフォルト値を削除し、環境変数での明示的な指定を必須化
-- **現在のモデル**: `o4-mini`を使用
-- **エラーハンドリング改善**: 環境変数未設定時に明確なエラーメッセージを表示
-
-### 2025-07-15 - バージョン 3.1.0
-- **外部URL公開**: `https://api.hey-watch.me/vibe-scorer/` で外部アクセス可能
-- **Nginxリバースプロキシ設定**: SSL/HTTPS対応、CORS設定完了
-- **ヘルスチェック修正**: Dockerfileにcurlを追加してヘルスチェック問題を解決
-
-### 2025-07-14 - バージョン 3.0.0
-- **重要な変更**: ローカルモード・Vault連携機能を完全削除
-- データソースをSupabase統合に一本化
-- EC2_BASE_URL環境変数を削除
-- requirements.txtの依存関係を修正（httpx==0.24.1, gotrue==1.3.0を固定）
-- Docker/systemdによる本番環境デプロイメント方法を追加
 
 ## ⚠️ 開発環境構築の注意事項
 
@@ -148,10 +101,7 @@ python3 main.py
 ### 4. 動作確認
 
 ```bash
-# ヘルスチェック（本番環境）
-curl https://api.hey-watch.me/vibe-scorer/health
-
-# ヘルスチェック（本番環境）
+# ヘルスチェック
 curl https://api.hey-watch.me/vibe-scorer/health
 ```
 
@@ -489,7 +439,6 @@ docker pull 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-api-vibe-s
 
 ### 基本情報
 - **本番環境URL**: `https://api.hey-watch.me/vibe-scorer`
-- **本番環境URL**: `https://api.hey-watch.me/vibe-scorer`
 - **認証**: 不要（OpenAI APIキーは環境変数で設定）
 - **レスポンス形式**: JSON
 
@@ -578,20 +527,6 @@ python3 test_mood_analysis.py
 
 ### 手動テスト例
 
-#### 本番環境
-```bash
-# 心理グラフ(VibeGraph)生成 - Supabase統合
-curl -X POST https://api.hey-watch.me/vibe-scorer/analyze-vibegraph-supabase \
-  -H "Content-Type: application/json" \
-  -d '{"device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0", "date": "2025-07-14"}'
-
-# 汎用ChatGPT中継
-curl -X POST https://api.hey-watch.me/vibe-scorer/analyze/chatgpt \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "あなたのプロンプトをここに入力"}'
-```
-
-#### 本番環境（外部URL）
 ```bash
 # 心理グラフ(VibeGraph)生成 - Supabase統合
 curl -X POST https://api.hey-watch.me/vibe-scorer/analyze-vibegraph-supabase \
@@ -750,46 +685,6 @@ OPENAI_MODEL="gpt-5-nano"  # 必須: 使用するOpenAIモデルを指定
 
 このプロジェクトはMITライセンスの下で公開されています。
 
-## 🧪 テスト実績
-
-### 2025年7月15日テスト結果（外部URL経由）
-
-**テストデバイス**: `d067d407-cf73-4174-a9c1-d91fb60d64d0`
-
-```bash
-# ✅ 外部URL経由でのテスト
-curl -X POST "https://api.hey-watch.me/vibe-scorer/analyze-vibegraph-supabase" \
-  -H "Content-Type: application/json" \
-  -d '{"device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0", "date": "2025-07-14"}'
-# → 成功: vibe_whisper_summaryテーブルに保存
-```
-
-**処理結果**:
-- 📊 処理時間: 約37秒（ChatGPT API呼び出し含む）
-- 📊 感情スコア: 平均32.5（ポジティブ：2.0時間、ネガティブ：0.5時間、ニュートラル：45.5時間）
-- ✅ データベース保存: 正常完了
-- ✅ 構造バリデーション: 48個のスコア正常処理
-- ✅ 外部アクセス: HTTPS経由で正常動作
-
-### 2025年7月14日テスト結果（Supabase統合版）
-
-**テストデバイス**: `d067d407-cf73-4174-a9c1-d91fb60d64d0`
-
-```bash
-# ✅ Supabase統合版テスト（EC2本番環境: 3.24.16.82）
-curl -X POST "http://3.24.16.82:8002/analyze-vibegraph-supabase" \
-  -H "Content-Type: application/json" \
-  -d '{"device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0", "date": "2025-07-13"}'
-# → 成功: vibe_whisper_summaryテーブルに保存
-```
-
-**処理結果**:
-- 📊 処理時間: 約21秒（ChatGPT API呼び出し含む）
-- 📊 感情スコア: 平均-7.5（ネガティブ：1.0時間、ニュートラル：1.0時間）
-- ✅ データベース保存: 正常完了
-- ✅ 構造バリデーション: 48個のスコア正常処理
-
----
 
 ## 🔗 マイクロサービス統合
 
