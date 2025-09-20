@@ -180,7 +180,8 @@ class SupabaseClient:
         analysis_result: Dict[str, Any],
         vibe_scores: Optional[List] = None,
         average_vibe: Optional[float] = None,
-        insights: Optional[List] = None
+        insights: Optional[List] = None,
+        burst_events: Optional[List[Dict[str, Any]]] = None  # 追加
     ) -> bool:
         """
         dashboard_summaryテーブルのanalysis_resultフィールドを更新
@@ -192,6 +193,7 @@ class SupabaseClient:
             vibe_scores: VibeScoresの配列（オプション）
             average_vibe: 平均Vibeスコア（オプション）
             insights: インサイト（オプション）
+            burst_events: バーストイベント情報（オプション）
         
         Returns:
             bool: 更新成功時True
@@ -232,6 +234,21 @@ class SupabaseClient:
             
             if insights is not None:
                 update_data['insights'] = insights
+            
+            # burst_eventsの追加（新規）
+            if burst_events is not None:
+                # burst_eventsはリストなので、各イベントをサニタイズ
+                if isinstance(burst_events, list):
+                    sanitized_events = []
+                    for event in burst_events:
+                        if isinstance(event, dict):
+                            sanitized_events.append(sanitize_dict(event))
+                        else:
+                            sanitized_events.append(event)
+                    update_data['burst_events'] = sanitized_events
+                else:
+                    # リストでない場合は空のリストまたはNoneをセット
+                    update_data['burst_events'] = [] if burst_events else None
             
             # デバッグ用：更新するデータを確認
             print(f"📝 Updating dashboard_summary:")

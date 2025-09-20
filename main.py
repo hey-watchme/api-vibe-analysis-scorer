@@ -570,6 +570,7 @@ async def analyze_dashboard_summary(request: DashboardSummaryRequest):
         vibe_scores = None
         average_vibe = None
         insights = None
+        burst_events = None  # 追加
         
         # emotionScoresやvibeScoresがある場合は抽出
         if 'emotionScores' in analysis_result:
@@ -583,9 +584,19 @@ async def analyze_dashboard_summary(request: DashboardSummaryRequest):
         elif 'averageVibe' in analysis_result:
             average_vibe = analysis_result['averageVibe']
         
-        # insightsがある場合は抽出
-        if 'insights' in analysis_result:
+        # cumulative_evaluationをinsightsとして保存（新規追加）
+        # iOSアプリではこれをインサイトサマリーとして使用
+        if 'cumulative_evaluation' in analysis_result:
+            insights = analysis_result['cumulative_evaluation']
+            print(f"📝 cumulative_evaluation検出: insightsカラムに保存")
+        # 従来のinsightsフィールドも対応（後方互換性）
+        elif 'insights' in analysis_result:
             insights = analysis_result['insights']
+        
+        # burst_eventsがある場合は抽出（新規追加）
+        if 'burst_events' in analysis_result:
+            burst_events = analysis_result['burst_events']
+            print(f"📊 burst_events検出: {len(burst_events) if burst_events else 0}個のイベント")
         
         # 4) dashboard_summaryテーブルのanalysis_resultフィールドを更新
         print("💾 dashboard_summaryテーブルに保存中...")
@@ -595,7 +606,8 @@ async def analyze_dashboard_summary(request: DashboardSummaryRequest):
             analysis_result=analysis_result,
             vibe_scores=vibe_scores,
             average_vibe=average_vibe,
-            insights=insights
+            insights=insights,
+            burst_events=burst_events  # 追加
         )
         
         if save_success:
