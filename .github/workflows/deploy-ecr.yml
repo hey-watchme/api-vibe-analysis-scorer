@@ -52,36 +52,39 @@ jobs:
         echo "  Tags: $IMAGE_TAG, latest"
 
     - name: Deploy to EC2
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
       uses: appleboy/ssh-action@v0.1.8
       with:
         host: ${{ env.EC2_HOST }}
         username: ubuntu
         key: ${{ secrets.EC2_SSH_KEY }}
+        envs: ECR_REGISTRY,ECR_REPOSITORY,AWS_REGION,SERVICE_NAME
         script: |
           echo "🚀 Starting deployment on EC2..."
           
           # Remove existing container if exists
-          docker rm -f ${{ env.SERVICE_NAME }} 2>/dev/null || true
+          docker rm -f ${SERVICE_NAME} 2>/dev/null || true
           
           # Login to ECR
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
-            docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+          aws ecr get-login-password --region ${AWS_REGION} | \
+            docker login --username AWS --password-stdin ${ECR_REGISTRY}
           
           # Pull latest image
-          docker pull ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+          docker pull ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
           
           # Restart service using systemd
-          sudo systemctl restart ${{ env.SERVICE_NAME }}
+          sudo systemctl restart ${SERVICE_NAME}
           
           # Wait for service to be active
           sleep 5
           
           # Check service status
-          if sudo systemctl is-active --quiet ${{ env.SERVICE_NAME }}; then
-            echo "✅ Service ${{ env.SERVICE_NAME }} is running"
+          if sudo systemctl is-active --quiet ${SERVICE_NAME}; then
+            echo "✅ Service ${SERVICE_NAME} is running"
           else
-            echo "❌ Service ${{ env.SERVICE_NAME }} failed to start"
-            sudo journalctl -u ${{ env.SERVICE_NAME }} -n 50
+            echo "❌ Service ${SERVICE_NAME} failed to start"
+            sudo journalctl -u ${SERVICE_NAME} -n 50
             exit 1
           fi
 
