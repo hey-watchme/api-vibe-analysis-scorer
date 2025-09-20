@@ -302,9 +302,85 @@ CREATE TABLE public.dashboard_summary (
 );
 ```
 
-## 🐳 Docker デプロイメント
+## 🚀 デプロイメント
 
-### ローカルでのDocker実行
+### 🎯 CI/CD による自動デプロイ（推奨）
+
+**2025年9月より、GitHub Actions による完全自動CI/CDパイプラインが稼働しています。**
+
+#### ✨ デプロイ方法（超簡単！）
+
+```bash
+# 1. コードを修正
+# 2. コミット＆プッシュするだけ！
+git add .
+git commit -m "feat: 新機能追加"
+git push origin main
+
+# 3. 自動デプロイ完了を待つ（約5分）
+# GitHub Actions: https://github.com/matsumotokaya/watchme-api-whisper-gpt/actions
+```
+
+これだけです！mainブランチへのpushで自動的に以下が実行されます：
+1. ARM64対応Dockerイメージのビルド
+2. ECRへのプッシュ
+3. EC2での自動デプロイ
+4. ヘルスチェック
+
+#### 📋 CI/CD 初期設定手順
+
+他のAPIでも同様のCI/CDを導入する場合の設定手順：
+
+##### 1. GitHub Secrets の設定
+
+GitHubリポジトリの Settings > Secrets and variables > Actions で以下を設定：
+
+| Secret名 | 説明 | 取得方法 |
+|---------|------|---------|
+| `AWS_ACCESS_KEY_ID` | AWS アクセスキー | AWS IAMコンソール or `cat ~/.aws/credentials` |
+| `AWS_SECRET_ACCESS_KEY` | AWS シークレットキー | 同上 |
+| `EC2_SSH_KEY` | EC2のSSH秘密鍵 | `cat ~/watchme-key.pem` の内容全体 |
+
+**重要**: EC2_SSH_KEYは`-----BEGIN RSA PRIVATE KEY-----`から`-----END RSA PRIVATE KEY-----`まで全て含める
+
+##### 2. ワークフローファイルの作成
+
+`.github/workflows/deploy-ecr.yml` を作成（本リポジトリのものを参考に）
+
+##### 3. 必要な調整項目
+
+```yaml
+env:
+  AWS_REGION: ap-southeast-2  # リージョン
+  ECR_REPOSITORY: watchme-api-vibe-scorer  # ECRリポジトリ名
+  SERVICE_NAME: api-gpt-v1  # systemdサービス名
+```
+
+#### ⚠️ ハマったポイントと解決策
+
+1. **SSH接続エラー**
+   - 問題：GitHub ActionsからEC2への接続で環境変数が渡らない
+   - 解決：`webfactory/ssh-agent@v0.9.0`を使用し、known_hostsを明示的に追加
+
+2. **ARM64アーキテクチャ対応**
+   - 問題：EC2がARM64（t4g.small）だがイメージがAMD64
+   - 解決：Docker Buildxを使用して`--platform linux/arm64`を指定
+
+3. **ECRレジストリURL**
+   - 問題：ハードコードされたURLでエラー
+   - 解決：`${{ steps.login-ecr.outputs.registry }}`で動的に取得
+
+4. **権限エラー**
+   - 問題：ECRへのpush権限不足
+   - 解決：IAMユーザーに`AmazonEC2ContainerRegistryPowerUser`ポリシーを付与
+
+5. **ヘルスチェック失敗**
+   - 問題：デプロイ直後にヘルスチェックが失敗
+   - 解決：`sleep 5`で起動待機時間を設ける
+
+### 🔧 手動デプロイ（CI/CDが使えない場合）
+
+#### ローカルでのDocker実行
 
 ```bash
 # Dockerイメージのビルド
@@ -320,11 +396,7 @@ docker-compose logs -f
 docker-compose down
 ```
 
-### 本番環境（EC2）へのデプロイ
-
-このサービスは **AWS ECR** を使用したコンテナデプロイメントで管理されています。
-
-#### 🚀 デプロイ手順
+#### 手動での本番デプロイ
 
 ##### 1. ローカルでECRへデプロイ
 
@@ -365,13 +437,47 @@ curl https://api.hey-watch.me/vibe-scorer/health
 # {"status":"healthy","timestamp":"2025-09-15T23:49:51.000343","openai_model":"gpt-5-nano"}
 ```
 
-#### 📋 ECR情報
+### 📋 インフラ情報
 
+#### ECR（Elastic Container Registry）
 - **レジストリ**: `754724220380.dkr.ecr.ap-southeast-2.amazonaws.com`
 - **リポジトリ**: `watchme-api-vibe-scorer`
 - **イメージURI**: `754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-api-vibe-scorer:latest`
 
-#### 🔧 トラブルシューティング
+#### EC2
+- **ホスト**: 3.24.16.82
+- **ユーザー**: ubuntu
+- **アーキテクチャ**: ARM64 (t4g.small)
+- **ポート**: 8002（内部）
+- **外部URL**: https://api.hey-watch.me/vibe-scorer/
+
+### 🔧 トラブルシューティング
+
+#### CI/CD関連
+
+##### GitHub Actions が失敗する場合
+
+1. **Actions タブで詳細を確認**
+   ```
+   https://github.com/matsumotokaya/watchme-api-whisper-gpt/actions
+   ```
+
+2. **よくあるエラーと対処法**
+   - `invalid reference format`: Dockerfile.prodが存在するか確認
+   - `no basic auth credentials`: AWS認証情報のSecretsを確認
+   - `Permission denied (publickey)`: EC2_SSH_KEYが正しく設定されているか確認
+   - `exec format error`: ARM64用のイメージがビルドされているか確認
+
+3. **手動での動作確認**
+   ```bash
+   # ローカルでDockerイメージをビルド
+   docker build -f Dockerfile.prod -t test-api .
+   
+   # ARM64向けビルドのテスト
+   docker buildx build --platform linux/arm64 -f Dockerfile.prod -t test-api .
+   ```
+
+#### サービス関連
 
 ```bash
 # サービスログの確認
@@ -382,6 +488,45 @@ ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "docker logs api-gpt-v1 --tail 50"
 
 # コンテナの状態確認
 ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "docker ps | grep api-gpt-v1"
+
+# systemd サービスの再起動
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo systemctl restart api-gpt-v1"
+
+# ECRから手動でイメージをプル
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "aws ecr get-login-password --region ap-southeast-2 | docker login --username AWS --password-stdin 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com && docker pull 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-api-vibe-scorer:latest"
+```
+
+### 📝 移行ガイド（他のAPIをCI/CD化する場合）
+
+#### Step 1: 必要なファイルの準備
+- [ ] `Dockerfile.prod` が存在することを確認
+- [ ] `.github/workflows/deploy-ecr.yml` をコピーして修正
+- [ ] ECRリポジトリが作成済みであることを確認
+
+#### Step 2: GitHub Secrets の設定
+- [ ] AWS_ACCESS_KEY_ID
+- [ ] AWS_SECRET_ACCESS_KEY  
+- [ ] EC2_SSH_KEY
+
+#### Step 3: ワークフローのカスタマイズ
+```yaml
+# 以下を各APIに合わせて変更
+env:
+  ECR_REPOSITORY: your-api-name  # ECRリポジトリ名
+  SERVICE_NAME: your-service-name  # systemdサービス名
+```
+
+#### Step 4: systemd設定の確認
+EC2上でサービスが設定済みであることを確認：
+```bash
+sudo systemctl status your-service-name
+```
+
+#### Step 5: テストデプロイ
+mainブランチにプッシュして動作確認：
+```bash
+git push origin main
+# GitHub Actions を確認
 ```
 
 ## 🔧 systemd による自動起動設定
