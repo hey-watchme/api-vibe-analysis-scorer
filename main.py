@@ -446,6 +446,7 @@ async def analyze_timeblock(request: TimeBlockAnalysisRequest):
             'behavior': analysis_result.get('behavior'),  # behaviorフィールドを追加
             'vibe_score': analysis_result.get('vibe_score'),
             'analysis_result': json.dumps(analysis_result, ensure_ascii=False),  # JSONBとして保存
+            'status': 'completed',  # ステータスを完了に設定
             'processed_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat()
         }
