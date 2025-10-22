@@ -12,7 +12,7 @@ on:
 # 環境変数
 env:
   AWS_REGION: ap-southeast-2
-  ECR_REPOSITORY: watchme-api-vibe-scorer
+  ECR_REPOSITORY: watchme-vibe-analysis-scorer
   SERVICE_NAME: api-gpt-v1
 
 # ジョブの定義
