@@ -13,7 +13,7 @@ on:
 env:
   AWS_REGION: ap-southeast-2
   ECR_REPOSITORY: watchme-vibe-analysis-scorer
-  SERVICE_NAME: api-gpt-v1
+  SERVICE_NAME: vibe-analysis-scorer
 
 # ジョブの定義
 jobs:
@@ -111,29 +111,29 @@ jobs:
           
           # 既存のコンテナを停止・削除
           echo "🛑 Stopping existing container..."
-          docker rm -f api-gpt-v1 2>/dev/null || true
-          
+          docker rm -f vibe-analysis-scorer 2>/dev/null || true
+
           # ECRにログイン
           echo "🔐 Logging in to ECR..."
           aws ecr get-login-password --region ap-southeast-2 | \
             docker login --username AWS --password-stdin 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com
-          
+
           # 最新イメージをプル
           echo "📥 Pulling latest image..."
-          docker pull 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-api-vibe-scorer:latest
-          
+          docker pull 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-vibe-analysis-scorer:latest
+
           # systemdサービスを再起動
           echo "🔄 Restarting service..."
-          sudo systemctl restart api-gpt-v1
-          
+          sudo systemctl restart vibe-analysis-scorer
+
           # サービスの状態確認
           echo "📊 Checking service status..."
           sleep 5
-          if sudo systemctl is-active --quiet api-gpt-v1; then
-            echo "✅ Service api-gpt-v1 is running"
+          if sudo systemctl is-active --quiet vibe-analysis-scorer; then
+            echo "✅ Service vibe-analysis-scorer is running"
           else
-            echo "❌ Service api-gpt-v1 failed to start"
-            sudo journalctl -u api-gpt-v1 -n 50
+            echo "❌ Service vibe-analysis-scorer failed to start"
+            sudo journalctl -u vibe-analysis-scorer -n 50
             exit 1
           fi
           
