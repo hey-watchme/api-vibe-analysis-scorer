@@ -45,39 +45,126 @@
 
 ## 🤖 LLMプロバイダー設定
 
+### 設計コンセプト
+
+このAPIは**複数のLLMプロバイダーに対応**し、簡単に切り替えられる設計になっています。
+
+**目的**:
+- 新しいモデルへの迅速な移行
+- コスト最適化（プロバイダーごとに価格が異なる）
+- パフォーマンス不良時の即座の切り戻し
+- 複数のモデルを事前準備（APIキー設定済み、いつでも切り替え可能）
+
+**特徴**:
+- ✅ クライアント側（アプリ・他のAPI）の変更は不要
+- ✅ コード1行変更 → git push で切り替え完了
+- ✅ 3-5種類のプロバイダーを待機状態で保持可能
+- ✅ モデルバージョンアップも同じ手順
+
 ### 現在使用中
 
 - プロバイダー: **OpenAI**
 - モデル: **gpt-5-nano**
 
+### 対応プロバイダー
+
+| プロバイダー | 対応モデル例 | 環境変数 | 状態 |
+|------------|------------|---------|------|
+| **OpenAI** | gpt-4o, gpt-4o-mini, gpt-5-nano, o1-preview | OPENAI_API_KEY | ✅ 設定済み |
+| **Groq** | llama-3.1-70b-versatile, llama-3.1-8b-instant, mixtral-8x7b-32768 | GROQ_API_KEY | ⚠️ 要設定 |
+
 ### プロバイダー切り替え方法
 
-`llm_providers.py` ファイルの先頭2行を変更するだけ：
+#### OpenAI → Groq に切り替える場合
+
+**ステップ1: Groq APIキーの準備**
+
+1. Groq APIキーを取得: https://console.groq.com/
+2. GitHub Secretsに追加:
+   - リポジトリの Settings > Secrets and variables > Actions
+   - New repository secret: `GROQ_API_KEY` = `gsk-...`
+
+3. CI/CDワークフローを更新（`.github/workflows/deploy-to-ecr.yml`）:
+
+```yaml
+# "Create/Update .env file on EC2" ステップに追加
+- name: Create/Update .env file on EC2
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}  # ← 追加
+    SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+    SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+  run: |
+    ssh ${EC2_USER}@${EC2_HOST} << ENDSSH
+      cd /home/ubuntu/vibe-analysis-scorer
+      echo "OPENAI_API_KEY=${OPENAI_API_KEY}" > .env
+      echo "GROQ_API_KEY=${GROQ_API_KEY}" >> .env  # ← 追加
+      echo "SUPABASE_URL=${SUPABASE_URL}" >> .env
+      echo "SUPABASE_KEY=${SUPABASE_KEY}" >> .env
+    ENDSSH
+```
+
+**ステップ2: プロバイダーを切り替え**
+
+```bash
+# llm_providers.py を編集
+vi llm_providers.py
+```
+
+変更内容：
+```python
+# 変更前
+CURRENT_PROVIDER = "openai"
+CURRENT_MODEL = "gpt-5-nano"
+
+# 変更後
+CURRENT_PROVIDER = "groq"
+CURRENT_MODEL = "llama-3.1-70b-versatile"
+```
+
+**ステップ3: デプロイ**
+
+```bash
+git add llm_providers.py .github/workflows/deploy-to-ecr.yml
+git commit -m "feat: Switch to Groq llama-3.1-70b"
+git push origin main
+
+# CI/CDが自動実行（約5分）
+```
+
+**ステップ4: 動作確認**
+
+```bash
+# ヘルスチェックでモデルを確認
+curl https://api.hey-watch.me/vibe-analysis/scorer/health
+
+# レスポンス例
+# {
+#   "status": "healthy",
+#   "llm_provider": "groq",  ← 変わっている
+#   "llm_model": "llama-3.1-70b-versatile"
+# }
+```
+
+#### モデルバージョンアップの場合（同じプロバイダー内）
+
+APIキー設定は不要。llm_providers.pyのモデル名だけ変更：
+
+```python
+# 例：gpt-5-nano → gpt-5-nano-2025-11 にアップグレード
+CURRENT_PROVIDER = "openai"  # プロバイダーはそのまま
+CURRENT_MODEL = "gpt-5-nano-2025-11"  # モデル名だけ変更
+```
+
+#### 切り戻し（Groq → OpenAI に戻す）
 
 ```python
 # llm_providers.py
-CURRENT_PROVIDER = "openai"  # "openai" または "groq"
+CURRENT_PROVIDER = "openai"  # 1行変更
 CURRENT_MODEL = "gpt-5-nano"
 ```
 
-#### 対応プロバイダー
-
-| プロバイダー | 対応モデル例 | 環境変数 |
-|------------|------------|---------|
-| **OpenAI** | gpt-4o, gpt-4o-mini, gpt-5-nano, o1-preview | OPENAI_API_KEY |
-| **Groq** | llama-3.1-70b-versatile, llama-3.1-8b-instant | GROQ_API_KEY |
-
-#### 切り替え手順
-
-```bash
-# 1. llm_providers.py を編集
-vi llm_providers.py
-
-# 2. git push（CI/CDで自動デプロイ）
-git add llm_providers.py
-git commit -m "feat: Switch LLM provider"
-git push origin main
-```
+git push するだけで即座に戻ります。
 
 ---
 
