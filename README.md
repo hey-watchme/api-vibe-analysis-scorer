@@ -65,12 +65,58 @@
 
 ## 🤖 使用モデル情報
 
-**現在使用中のAIモデル**: `gpt-5-nano`
+**現在使用中のAIモデル**: `gpt-5-nano` (OpenAI)
 
-環境変数 `OPENAI_MODEL` で指定：
+### LLMプロバイダー切り替え方法
+
+このAPIは複数のLLMプロバイダー（OpenAI、Groq等）に対応しています。
+プロバイダーの切り替えは `llm_providers.py` ファイルの先頭の定数を変更するだけで可能です。
+
+```python
+# llm_providers.py（先頭の設定部分）
+CURRENT_PROVIDER = "openai"  # "openai" または "groq" に変更
+CURRENT_MODEL = "gpt-5-nano"  # 使用するモデル名を指定
+```
+
+#### 対応プロバイダー
+
+| プロバイダー | 対応モデル例 | APIキー環境変数 |
+|------------|------------|---------------|
+| **OpenAI** | gpt-4o, gpt-4o-mini, gpt-5-nano, o1-preview | OPENAI_API_KEY |
+| **Groq** | llama-3.1-70b-versatile, llama-3.1-8b-instant, mixtral-8x7b-32768 | GROQ_API_KEY |
+
+#### モデル切り替え手順
+
 ```bash
-# .envファイル
-OPENAI_MODEL=gpt-5-nano
+# 1. llm_providers.py を編集
+vi llm_providers.py
+
+# 例：Groqに切り替える場合
+# CURRENT_PROVIDER = "groq"
+# CURRENT_MODEL = "llama-3.1-70b-versatile"
+
+# 2. コミット＆プッシュ
+git add llm_providers.py
+git commit -m "feat: Switch to Groq llama-3.1-70b"
+git push origin main
+
+# 3. CI/CDが自動デプロイ（約5分）
+```
+
+#### .envファイルの設定
+
+APIキーは `.env` ファイルで管理（一度設定したら変更不要）：
+
+```bash
+# OpenAI（必須）
+OPENAI_API_KEY=sk-...
+
+# Groq（オプション）
+GROQ_API_KEY=gsk_...
+
+# Supabase（必須）
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-anon-key
 ```
 
 ## ✨ 主要機能
@@ -129,13 +175,15 @@ pip install -r requirements.txt
 # 必須: OpenAI API キー
 OPENAI_API_KEY=sk-your-openai-api-key-here
 
+# オプション: Groq API キー（Groqを使用する場合のみ）
+GROQ_API_KEY=gsk-your-groq-api-key-here
+
 # 必須: Supabase設定
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-anon-key
-
-# 必須: モデル指定
-OPENAI_MODEL=gpt-5-nano  # 現在設定されているモデル
 ```
+
+**注意**: モデルの指定は `llm_providers.py` ファイルで行います（環境変数ではありません）。
 
 ### 3. 開発サーバー起動
 
@@ -158,13 +206,13 @@ curl https://api.hey-watch.me/vibe-analysis/scorer/health
 
 ### エンドポイント1
 
-| エンドポイント | メソッド | 説明 |
-|--------------|---------|------|
-| `/` | GET | ルートエンドポイント |
-| `/health` | GET | ヘルスチェック |
-| `/analyze/chatgpt` | POST | 任意のプロンプトをChatGPTに中継 |
-| `/analyze-vibegraph-supabase` | POST | 1日分の心理グラフ生成（48タイムブロック統合） |
-| `/analyze-dashboard-summary` | POST | Dashboard Summary分析（新規） |
+| エンドポイント | メソッド | 説明 | 状態 |
+|--------------|---------|------|------|
+| `/` | GET | ルートエンドポイント | ✅ アクティブ |
+| `/health` | GET | ヘルスチェック | ✅ アクティブ |
+| `/analyze/chatgpt` | POST | 任意のプロンプトをChatGPTに中継 | ⚠️ 現在は使用していません |
+| `/analyze-vibegraph-supabase` | POST | 1日分の心理グラフ生成（48タイムブロック統合） | ⚠️ 現在は使用していません |
+| `/analyze-dashboard-summary` | POST | Dashboard Summary分析（新規） | ✅ アクティブ |
 
 ### エンドポイント2 タイムブロック分析エンドポイント
 
@@ -649,7 +697,8 @@ APIの稼働状況と設定情報を確認
 {
   "status": "healthy",
   "timestamp": "2025-09-05T10:00:00.000000",
-  "openai_model": "gpt-5-nano"
+  "llm_provider": "openai",
+  "llm_model": "gpt-5-nano"
 }
 ```
 
@@ -827,6 +876,7 @@ uvicorn==0.23.0
 pydantic==2.0.2
 python-dotenv==1.0.0
 openai>=1.0.0
+groq>=0.4.0  # Groqプロバイダー対応
 requests>=2.31.0
 python-multipart>=0.0.6
 aiohttp>=3.8.0
@@ -854,11 +904,16 @@ supabase==2.3.4
 ### 環境変数設定（.envファイル）
 
 ```bash
+# LLM APIキー
 OPENAI_API_KEY="実際のAPIキー"
+GROQ_API_KEY="実際のGroq APIキー"  # Groq使用時のみ
+
+# Supabase設定
 SUPABASE_URL="https://qvtlwotzuzbavrzqhyvt.supabase.co"
 SUPABASE_KEY="実際のSupabaseキー"
-OPENAI_MODEL="gpt-5-nano"  # 必須: 使用するOpenAIモデルを指定
 ```
+
+**注意**: 使用するLLMプロバイダーとモデルは `llm_providers.py` の `CURRENT_PROVIDER` と `CURRENT_MODEL` で指定します。
 
 デプロイ手順は[本番環境（EC2）へのデプロイ](#本番環境ec2へのデプロイ)セクションを参照してください。
 

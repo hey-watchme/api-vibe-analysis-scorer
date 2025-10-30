@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from openai import OpenAI
 import os
 import json
 import re
@@ -8,7 +7,6 @@ import math
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from fastapi.middleware.cors import CORSMiddleware
 
 # 環境変数の読み込み
@@ -17,13 +15,8 @@ load_dotenv()
 # Supabaseクライアントのインポート
 from supabase_client import SupabaseClient
 
-# 設定
-OPENAI_MODEL = os.getenv("OPENAI_MODEL")
-if not OPENAI_MODEL:
-    raise ValueError("OPENAI_MODEL環境変数が設定されていません。.envファイルにOPENAI_MODELを設定してください。")
-
-# OpenAI クライアントの初期化
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# LLMプロバイダーのインポート
+from llm_providers import get_current_llm, CURRENT_PROVIDER, CURRENT_MODEL
 
 app = FastAPI(title="VibeGraph Generation API")
 
@@ -174,33 +167,25 @@ def validate_emotion_scores(data: Dict[str, Any]) -> Dict[str, Any]:
     
     return data, validation_info
 
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
-    retry=retry_if_exception_type(Exception)
-)
-async def call_chatgpt_with_retry(prompt: str) -> Dict[str, Any]:
-    """リトライ機能付きChatGPT呼び出し"""
+async def call_llm_with_retry(prompt: str) -> Dict[str, Any]:
+    """リトライ機能付きLLM呼び出し（プロバイダー抽象化）"""
     try:
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-        
-        raw_response = response.choices[0].message.content
-        
+        # 現在設定されているLLMプロバイダーを取得
+        llm = get_current_llm()
+
+        # LLM呼び出し（各プロバイダーのリトライ機能が適用される）
+        raw_response = llm.generate(prompt)
+
         # JSON抽出処理
         extracted_data = extract_json_from_response(raw_response)
-        
+
         # NaN値の処理
         processed_data = process_nan_values(extracted_data)
-        
+
         return processed_data
-        
+
     except Exception as e:
-        print(f"ChatGPT API呼び出しエラー: {e}")
+        print(f"LLM API呼び出しエラー: {e}")
         raise
 
 @app.get("/")
@@ -210,27 +195,22 @@ async def root():
 @app.post("/analyze/chatgpt")
 async def relay_to_chatgpt(request: PromptRequest):
     """
+    ⚠️ このエンドポイントは現在使用していません
+
     プロンプトをChatGPT APIに中継し、応答をJSON形式（dict）で返します。
     改善されたJSON抽出処理とNaN対応を含みます。
     """
     try:
-        # ChatGPT APIの呼び出し
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "user", "content": request.prompt}
-            ]
-        )
+        # LLM呼び出し（プロバイダー抽象化）
+        llm = get_current_llm()
+        raw_response = llm.generate(request.prompt)
 
-        # レスポンスの取得
-        raw_response = response.choices[0].message.content
-        
         # 改善されたJSON抽出処理
         extracted_data = extract_json_from_response(raw_response)
-        
+
         # NaN値の処理
         processed_data = process_nan_values(extracted_data)
-        
+
         return processed_data
     
     except Exception as e:
@@ -256,12 +236,15 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "openai_model": OPENAI_MODEL
+        "llm_provider": CURRENT_PROVIDER,
+        "llm_model": CURRENT_MODEL
     }
 
 @app.post("/analyze-vibegraph-supabase")
 async def analyze_vibegraph_supabase(request: VibeGraphRequest):
     """
+    ⚠️ このエンドポイントは現在使用していません
+
     Supabase統合版の心理グラフ(VibeGraph)処理
     vibe_whisper_promptテーブルからプロンプトを取得し、処理後にvibe_whisper_summaryテーブルに保存
     """
@@ -310,9 +293,9 @@ async def analyze_vibegraph_supabase(request: VibeGraphRequest):
             processing_log["warnings"].append(f"検索日付({search_date})と実データ日付({actual_date})が異なります")
             processing_log["actual_date"] = actual_date
         
-        # 2) ChatGPT処理（リトライ付き）
-        analysis_result = await call_chatgpt_with_retry(prompt_data["prompt"])
-        processing_log["processing_steps"].append("ChatGPT処理完了")
+        # 2) LLM処理（リトライ付き）
+        analysis_result = await call_llm_with_retry(prompt_data["prompt"])
+        processing_log["processing_steps"].append("LLM処理完了")
         
         # 3) 構造バリデーション
         validated_data, validation_info = validate_emotion_scores(analysis_result)
@@ -422,10 +405,10 @@ async def analyze_timeblock(request: TimeBlockAnalysisRequest):
         print(f"  - Time Block: {request.time_block}")
         print(f"  - Prompt length: {len(request.prompt)} chars")
         
-        # ChatGPT処理（既存のロジックを使用）
-        print("📤 ChatGPTに送信中...")
-        analysis_result = await call_chatgpt_with_retry(request.prompt)
-        print(f"✅ ChatGPT処理完了")
+        # LLM処理（プロバイダー抽象化）
+        print(f"📤 LLMに送信中... ({CURRENT_PROVIDER}/{CURRENT_MODEL})")
+        analysis_result = await call_llm_with_retry(request.prompt)
+        print(f"✅ LLM処理完了")
         
         # 結果をターミナルに表示
         print("\n" + "="*60)
@@ -471,7 +454,7 @@ async def analyze_timeblock(request: TimeBlockAnalysisRequest):
             "analysis_result": analysis_result,
             "database_save": save_success,
             "processed_at": datetime.now().isoformat(),
-            "model_used": OPENAI_MODEL
+            "model_used": f"{CURRENT_PROVIDER}/{CURRENT_MODEL}"
         }
         
     except HTTPException:
@@ -554,11 +537,11 @@ async def analyze_dashboard_summary(request: DashboardSummaryRequest):
         print(f"  - Prompt length: {len(prompt_text)} chars")
         processing_log["processing_steps"].append(f"プロンプト準備完了（{len(prompt_text)}文字）")
         
-        # 2) ChatGPT処理（リトライ付き）
-        print("📤 ChatGPTに送信中...")
-        analysis_result = await call_chatgpt_with_retry(prompt_text)
-        processing_log["processing_steps"].append("ChatGPT処理完了")
-        print(f"✅ ChatGPT処理完了")
+        # 2) LLM処理（リトライ付き）
+        print(f"📤 LLMに送信中... ({CURRENT_PROVIDER}/{CURRENT_MODEL})")
+        analysis_result = await call_llm_with_retry(prompt_text)
+        processing_log["processing_steps"].append("LLM処理完了")
+        print(f"✅ LLM処理完了")
         
         # 結果をターミナルに表示
         print("\n" + "="*60)
@@ -630,7 +613,7 @@ async def analyze_dashboard_summary(request: DashboardSummaryRequest):
             "date": target_date,
             "database_save": save_success,
             "processed_at": datetime.now().isoformat(),
-            "model_used": OPENAI_MODEL,
+            "model_used": f"{CURRENT_PROVIDER}/{CURRENT_MODEL}",
             "processing_log": processing_log,
             "analysis_result": analysis_result
         }
