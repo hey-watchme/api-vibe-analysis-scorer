@@ -13,9 +13,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 # ==========================================
 # 🔧 現在使用中のLLMプロバイダー設定
 # ==========================================
-# この2行を変更するだけでプロバイダーを切り替え可能
-CURRENT_PROVIDER = "openai"  # "openai" または "groq"
-CURRENT_MODEL = "gpt-5-nano"
+# この行を変更するだけでプロバイダーを切り替え可能
+CURRENT_PROVIDER = "groq"  # "openai" または "groq"
+CURRENT_MODEL = "openai/gpt-oss-120b"
+# Groq推論モデル用の設定（openai/で始まるモデルの場合のみ使用）
+CURRENT_REASONING_EFFORT = "medium"  # "low", "medium", "high"
+CURRENT_MAX_COMPLETION_TOKENS = 8192
 # ==========================================
 
 
@@ -86,11 +89,19 @@ class OpenAIProvider(LLMProvider):
 class GroqProvider(LLMProvider):
     """Groq APIプロバイダー"""
 
-    def __init__(self, model: str = "llama-3.1-70b-versatile"):
+    def __init__(
+        self,
+        model: str = "llama-3.3-70b-versatile",
+        reasoning_effort: Optional[str] = None,
+        max_completion_tokens: int = 8192
+    ):
         """
         Args:
             model (str): 使用するGroqモデル名
-                例: "llama-3.1-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"
+                例: "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b"
+            reasoning_effort (str, optional): 推論モデル用のパラメータ ("low", "medium", "high")
+                openai/gpt-oss-120bなどの推論モデルで使用
+            max_completion_tokens (int): 最大出力トークン数（デフォルト: 8192）
         """
         from groq import Groq  # 遅延インポート
 
@@ -100,6 +111,8 @@ class GroqProvider(LLMProvider):
 
         self.client = Groq(api_key=api_key)
         self._model = model
+        self._reasoning_effort = reasoning_effort
+        self._max_completion_tokens = max_completion_tokens
 
     @retry(
         stop=stop_after_attempt(3),
@@ -109,10 +122,20 @@ class GroqProvider(LLMProvider):
     def generate(self, prompt: str) -> str:
         """Groq APIを呼び出してテキスト生成（リトライ付き）"""
         try:
-            response = self.client.chat.completions.create(
-                model=self._model,
-                messages=[{"role": "user", "content": prompt}]
-            )
+            # 基本パラメータ
+            params = {
+                "model": self._model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_completion_tokens": self._max_completion_tokens,
+                "temperature": 1,
+                "top_p": 1
+            }
+
+            # 推論モデル用のパラメータを追加（openai/で始まるモデルの場合）
+            if self._model.startswith("openai/") and self._reasoning_effort:
+                params["reasoning_effort"] = self._reasoning_effort
+
+            response = self.client.chat.completions.create(**params)
             return response.choices[0].message.content
 
         except Exception as e:
@@ -149,7 +172,7 @@ class LLMFactory:
             return OpenAIProvider(model or default_model)
 
         elif provider == "groq":
-            default_model = "llama-3.1-70b-versatile"
+            default_model = "llama-3.3-70b-versatile"
             return GroqProvider(model or default_model)
 
         else:
@@ -169,7 +192,17 @@ class LLMFactory:
             LLMProvider: 現在のプロバイダーインスタンス
         """
         print(f"🤖 使用LLMプロバイダー: {CURRENT_PROVIDER}/{CURRENT_MODEL}")
-        return LLMFactory.create(CURRENT_PROVIDER, CURRENT_MODEL)
+
+        if CURRENT_PROVIDER.lower() == "groq":
+            # Groqプロバイダーの場合、推論モデルのパラメータも渡す
+            return GroqProvider(
+                model=CURRENT_MODEL,
+                reasoning_effort=CURRENT_REASONING_EFFORT if CURRENT_MODEL.startswith("openai/") else None,
+                max_completion_tokens=CURRENT_MAX_COMPLETION_TOKENS
+            )
+        else:
+            # OpenAIなど他のプロバイダーの場合
+            return LLMFactory.create(CURRENT_PROVIDER, CURRENT_MODEL)
 
 
 # 便利な関数：現在のLLMを取得

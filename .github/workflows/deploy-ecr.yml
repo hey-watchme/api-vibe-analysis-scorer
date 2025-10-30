@@ -85,21 +85,38 @@ jobs:
     runs-on: ubuntu-latest
     # 重要: deploy ジョブが成功した後にのみ実行
     needs: deploy
-    
+
     steps:
     # ステップ1: SSHエージェントのセットアップ
     - name: Setup SSH Agent
       uses: webfactory/ssh-agent@v0.9.0
       with:
         ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
-    
+
     # ステップ2: Known Hostsの追加（セキュリティ向上）
     - name: Add EC2 to known hosts
       run: |
         mkdir -p ~/.ssh
         ssh-keyscan -H 3.24.16.82 >> ~/.ssh/known_hosts
-    
-    # ステップ3: EC2にデプロイ
+
+    # ステップ3: Create/Update .env file on EC2
+    - name: Create/Update .env file on EC2
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      run: |
+        ssh ubuntu@3.24.16.82 << ENDSSH
+          cd /home/ubuntu/vibe-analysis-scorer
+          echo "OPENAI_API_KEY=${OPENAI_API_KEY}" > .env
+          echo "GROQ_API_KEY=${GROQ_API_KEY}" >> .env
+          echo "SUPABASE_URL=${SUPABASE_URL}" >> .env
+          echo "SUPABASE_KEY=${SUPABASE_KEY}" >> .env
+          echo "✅ .env file created/updated successfully"
+        ENDSSH
+
+    # ステップ4: EC2にデプロイ
     - name: Deploy to EC2 instance
       run: |
         echo "🚀 Starting deployment to EC2..."
@@ -149,8 +166,8 @@ jobs:
         ENDSSH
         
         echo "✅ EC2 deployment completed successfully!"
-    
-    # ステップ4: 外部URLの検証
+
+    # ステップ5: 外部URLの検証
     - name: Verify External URL
       run: |
         echo "🔍 Verifying external URL..."
@@ -162,8 +179,8 @@ jobs:
           echo "❌ External URL verification failed"
           exit 1
         fi
-    
-    # ステップ5: デプロイ成功通知
+
+    # ステップ6: デプロイ成功通知
     - name: Deployment Success Notification
       if: success()
       run: |
@@ -174,8 +191,8 @@ jobs:
         echo "📊 Features deployed:"
         echo "  - burst_events field saving to dashboard_summary"
         echo "  - cumulative_evaluation saved to insights column"
-    
-    # ステップ6: デプロイ失敗通知
+
+    # ステップ7: デプロイ失敗通知
     - name: Deployment Failure Notification
       if: failure()
       run: |

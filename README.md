@@ -63,15 +63,17 @@
 
 ### 現在使用中
 
-- プロバイダー: **OpenAI**
-- モデル: **gpt-5-nano**
+- プロバイダー: **Groq**
+- モデル: **openai/gpt-oss-120b** (推論モデル)
+- Reasoning Effort: **medium**
 
 ### 対応プロバイダー
 
 | プロバイダー | 対応モデル例 | 環境変数 | 状態 |
 |------------|------------|---------|------|
 | **OpenAI** | gpt-4o, gpt-4o-mini, gpt-5-nano, o1-preview | OPENAI_API_KEY | ✅ 設定済み |
-| **Groq** | llama-3.1-70b-versatile, llama-3.1-8b-instant, mixtral-8x7b-32768 | GROQ_API_KEY | ⚠️ 要設定 |
+| **Groq** | llama-3.3-70b-versatile, llama-3.1-8b-instant | GROQ_API_KEY | ✅ 設定済み |
+| **Groq経由OpenAI** | openai/gpt-oss-120b (推論モデル) | GROQ_API_KEY | ✅ 設定済み（現在使用中） |
 
 ### プロバイダー切り替え方法
 
@@ -119,14 +121,14 @@ CURRENT_MODEL = "gpt-5-nano"
 
 # 変更後
 CURRENT_PROVIDER = "groq"
-CURRENT_MODEL = "llama-3.1-70b-versatile"
+CURRENT_MODEL = "llama-3.3-70b-versatile"
 ```
 
 **ステップ3: デプロイ**
 
 ```bash
 git add llm_providers.py .github/workflows/deploy-to-ecr.yml
-git commit -m "feat: Switch to Groq llama-3.1-70b"
+git commit -m "feat: Switch to Groq llama-3.3-70b"
 git push origin main
 
 # CI/CDが自動実行（約5分）
@@ -142,7 +144,7 @@ curl https://api.hey-watch.me/vibe-analysis/scorer/health
 # {
 #   "status": "healthy",
 #   "llm_provider": "groq",  ← 変わっている
-#   "llm_model": "llama-3.1-70b-versatile"
+#   "llm_model": "llama-3.3-70b-versatile"
 # }
 ```
 
@@ -155,6 +157,18 @@ APIキー設定は不要。llm_providers.pyのモデル名だけ変更：
 CURRENT_PROVIDER = "openai"  # プロバイダーはそのまま
 CURRENT_MODEL = "gpt-5-nano-2025-11"  # モデル名だけ変更
 ```
+
+#### 推論モデル（openai/gpt-oss-120b）を使用する場合
+
+```python
+# llm_providers.py
+CURRENT_PROVIDER = "groq"
+CURRENT_MODEL = "openai/gpt-oss-120b"
+CURRENT_REASONING_EFFORT = "medium"  # "low", "medium", "high"
+CURRENT_MAX_COMPLETION_TOKENS = 8192
+```
+
+**注意**: 推論モデルは通常のモデルよりレスポンス時間が長くなります。
 
 #### 切り戻し（Groq → OpenAI に戻す）
 
@@ -200,8 +214,8 @@ curl https://api.hey-watch.me/vibe-analysis/scorer/health
 {
   "status": "healthy",
   "timestamp": "2025-10-30T12:00:00.000000",
-  "llm_provider": "openai",
-  "llm_model": "gpt-5-nano"
+  "llm_provider": "groq",
+  "llm_model": "openai/gpt-oss-120b"
 }
 ```
 
@@ -233,7 +247,7 @@ curl -X POST https://api.hey-watch.me/vibe-analysis/scorer/analyze-timeblock \
   },
   "database_save": true,
   "processed_at": "2025-10-30T14:30:00.000Z",
-  "model_used": "openai/gpt-5-nano"
+  "model_used": "groq/openai/gpt-oss-120b"
 }
 ```
 
@@ -257,7 +271,7 @@ curl -X POST https://api.hey-watch.me/vibe-analysis/scorer/analyze-dashboard-sum
   "date": "2025-10-30",
   "database_save": true,
   "processed_at": "2025-10-30T17:00:00.000000",
-  "model_used": "openai/gpt-5-nano",
+  "model_used": "groq/openai/gpt-oss-120b",
   "analysis_result": {
     "cumulative_evaluation": "1日の総合評価",
     "mood_trajectory": "positive_trend",
