@@ -172,9 +172,9 @@ jobs:
       run: |
         echo "🔍 Verifying external URL..."
         sleep 5
-        if curl -f https://api.hey-watch.me/vibe-scorer/health; then
+        if curl -f https://api.hey-watch.me/vibe-analysis/scorer/health; then
           echo "✅ External URL is accessible"
-          curl https://api.hey-watch.me/vibe-scorer/health | jq .
+          curl https://api.hey-watch.me/vibe-analysis/scorer/health | jq .
         else
           echo "❌ External URL verification failed"
           exit 1
@@ -186,11 +186,12 @@ jobs:
       run: |
         echo "🎉 Full CI/CD pipeline completed successfully!"
         echo "📦 Service: ${{ env.SERVICE_NAME }}"
-        echo "🌐 URL: https://api.hey-watch.me/vibe-scorer/"
+        echo "🌐 URL: https://api.hey-watch.me/vibe-analysis/scorer/"
         echo "🏷️ Version: ${{ github.sha }}"
+        echo "🤖 LLM Provider: Groq (openai/gpt-oss-120b)"
         echo "📊 Features deployed:"
-        echo "  - burst_events field saving to dashboard_summary"
-        echo "  - cumulative_evaluation saved to insights column"
+        echo "  - Groq API support with reasoning model"
+        echo "  - openai/gpt-oss-120b with reasoning_effort parameter"
 
     # ステップ7: デプロイ失敗通知
     - name: Deployment Failure Notification
