@@ -4,7 +4,7 @@
 
 ## 🌐 外部公開URL
 
-**本番環境URL**: `https://api.hey-watch.me/vibe-scorer/`
+**本番環境URL**: `https://api.hey-watch.me/vibe-analysis/scorer/`
 
 - マイクロサービスとして外部から利用可能
 - SSL/HTTPS対応
@@ -13,6 +13,55 @@
 ## 🎯 概要
 
 このAPIは、受け取ったPromptをChatGPTへと中継し、返ってきた値を心理グラフ(VibeGraph)の生成に使用するJSONへと変換するFastAPIベースのサービスです。Supabaseデータベースとの統合により、発話データから心理グラフ、気分スコアを生成します。
+
+## 🗺️ ルーティング詳細
+
+| 項目 | 値 | 説明 |
+|------|-----|------|
+| **🏷️ サービス名** | Vibe Scorer API | ChatGPT中継・心理グラフ生成 |
+| **📦 機能** | LLM Gateway & Analysis | ChatGPT中継、心理グラフ(VibeGraph)生成 |
+| | | |
+| **🌐 外部アクセス（Nginx）** | | |
+| └ 公開エンドポイント | `https://api.hey-watch.me/vibe-analysis/scorer/` | 外部公開URL |
+| └ Nginx設定ファイル | `/etc/nginx/sites-available/api.hey-watch.me` | |
+| └ proxy_pass先 | `http://localhost:8002/` | 内部転送先 |
+| └ タイムアウト | 180秒 | read/connect/send |
+| | | |
+| **🔌 API内部エンドポイント** | | |
+| └ ヘルスチェック | `/health` | GET - モデル情報含む |
+| └ ルート情報 | `/` | GET - API情報表示 |
+| └ ChatGPT中継 | `/analyze/chatgpt` | POST - 汎用LLM中継 |
+| └ 心理グラフ生成 | `/analyze-vibegraph-supabase` | POST - 48タイムブロック統合 |
+| └ タイムブロック分析 | `/analyze-timeblock` | POST - 30分単位分析 |
+| └ ダッシュボードサマリー | `/analyze-dashboard-summary` | POST - 1日統合分析 |
+| | | |
+| **🐳 Docker/コンテナ** | | |
+| └ コンテナ名 | `vibe-analysis-scorer` | `docker ps`で表示される名前 |
+| └ ポート（内部） | 8002 | コンテナ内 |
+| └ ポート（公開） | `127.0.0.1:8002:8002` | ローカルホストのみ |
+| └ ヘルスチェック | `/health` | Docker healthcheck |
+| | | |
+| **☁️ AWS ECR** | | |
+| └ リポジトリ名 | `watchme-vibe-analysis-scorer` | ECRリポジトリ |
+| └ リージョン | ap-southeast-2 (Sydney) | |
+| └ URI | `754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-vibe-analysis-scorer:latest` | |
+| | | |
+| **⚙️ systemd** | | |
+| └ サービス名 | `vibe-analysis-scorer.service` | systemdサービス名 |
+| └ 起動コマンド | `docker-compose up -d` | |
+| └ 自動起動 | enabled | サーバー再起動時に自動起動 |
+| | | |
+| **📂 ディレクトリ** | | |
+| └ ソースコード | `/Users/kaya.matsumoto/projects/watchme/api/vibe-analysis/scorer` | ローカル |
+| └ GitHubリポジトリ | `hey-watchme/api-vibe-analysis-scorer` | |
+| └ EC2配置場所 | Docker内部のみ（ディレクトリなし） | ECR経由デプロイ |
+| | | |
+| **🔗 呼び出し元** | | |
+| └ プロンプト生成API | `api_gen-prompt_mood-chart_v1` | タイムブロック分析連携 |
+| └ Dashboard | `watchme_v8` | 心理グラフ表示 |
+| └ iOS App | `ios_watchme_v9` | モバイル連携 |
+
+---
 
 ## 🤖 使用モデル情報
 
@@ -102,7 +151,7 @@ python3 main.py
 
 ```bash
 # ヘルスチェック
-curl https://api.hey-watch.me/vibe-scorer/health
+curl https://api.hey-watch.me/vibe-analysis/scorer/health
 ```
 
 ## 📌 API エンドポイント
@@ -127,7 +176,7 @@ curl https://api.hey-watch.me/vibe-scorer/health
 
 ```bash
 # タイムブロック分析（ChatGPT処理＋DB保存）
-curl -X POST https://api.hey-watch.me/vibe-scorer/analyze-timeblock \
+curl -X POST https://api.hey-watch.me/vibe-analysis/scorer/analyze-timeblock \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "分析用プロンプト",
@@ -172,7 +221,7 @@ curl -X POST https://api.hey-watch.me/vibe-scorer/analyze-timeblock \
 
 ```bash
 # Dashboard Summary分析（ChatGPT処理＋更新）
-curl -X POST https://api.hey-watch.me/vibe-scorer/analyze-dashboard-summary \
+curl -X POST https://api.hey-watch.me/vibe-analysis/scorer/analyze-dashboard-summary \
   -H "Content-Type: application/json" \
   -d '{
     "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
@@ -253,7 +302,7 @@ if prompt_response.status_code == 200:
     # または prompt_response から直接取得
     
     analysis_response = requests.post(
-        "https://api.hey-watch.me/vibe-scorer/analyze-timeblock",
+        "https://api.hey-watch.me/vibe-analysis/scorer/analyze-timeblock",
         json={
             "prompt": prompt_text,
             "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
@@ -352,8 +401,8 @@ GitHubリポジトリの Settings > Secrets and variables > Actions で以下を
 ```yaml
 env:
   AWS_REGION: ap-southeast-2  # リージョン
-  ECR_REPOSITORY: watchme-api-vibe-scorer  # ECRリポジトリ名
-  SERVICE_NAME: api-gpt-v1  # systemdサービス名
+  ECR_REPOSITORY: watchme-vibe-analysis-scorer  # ECRリポジトリ名
+  SERVICE_NAME: vibe-analysis-scorer  # systemdサービス名
 ```
 
 #### ⚠️ ハマったポイントと解決策
@@ -418,20 +467,20 @@ cd /path/to/api_gpt_v1
 
 ```bash
 # 既存のコンテナが残っている場合は削除
-ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "docker rm -f api-gpt-v1"
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "docker rm -f vibe-analysis-scorer"
 
 # systemdサービスを再起動
-ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo systemctl restart api-gpt-v1"
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo systemctl restart vibe-analysis-scorer"
 
 # ステータス確認
-ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo systemctl status api-gpt-v1"
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo systemctl status vibe-analysis-scorer"
 ```
 
 ##### 3. 動作確認
 
 ```bash
 # ヘルスチェック（外部URL）
-curl https://api.hey-watch.me/vibe-scorer/health
+curl https://api.hey-watch.me/vibe-analysis/scorer/health
 
 # 期待されるレスポンス
 # {"status":"healthy","timestamp":"2025-09-15T23:49:51.000343","openai_model":"gpt-5-nano"}
@@ -441,15 +490,15 @@ curl https://api.hey-watch.me/vibe-scorer/health
 
 #### ECR（Elastic Container Registry）
 - **レジストリ**: `754724220380.dkr.ecr.ap-southeast-2.amazonaws.com`
-- **リポジトリ**: `watchme-api-vibe-scorer`
-- **イメージURI**: `754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-api-vibe-scorer:latest`
+- **リポジトリ**: `watchme-vibe-analysis-scorer`
+- **イメージURI**: `754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-vibe-analysis-scorer:latest`
 
 #### EC2
 - **ホスト**: 3.24.16.82
 - **ユーザー**: ubuntu
 - **アーキテクチャ**: ARM64 (t4g.small)
 - **ポート**: 8002（内部）
-- **外部URL**: https://api.hey-watch.me/vibe-scorer/
+- **外部URL**: https://api.hey-watch.me/vibe-analysis/scorer/
 
 ### 🔧 トラブルシューティング
 
@@ -481,19 +530,19 @@ curl https://api.hey-watch.me/vibe-scorer/health
 
 ```bash
 # サービスログの確認
-ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo journalctl -u api-gpt-v1 -n 50"
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo journalctl -u vibe-analysis-scorer -n 50"
 
 # Dockerコンテナのログ確認
-ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "docker logs api-gpt-v1 --tail 50"
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "docker logs vibe-analysis-scorer --tail 50"
 
 # コンテナの状態確認
-ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "docker ps | grep api-gpt-v1"
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "docker ps | grep vibe-analysis-scorer"
 
 # systemd サービスの再起動
-ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo systemctl restart api-gpt-v1"
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "sudo systemctl restart vibe-analysis-scorer"
 
 # ECRから手動でイメージをプル
-ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "aws ecr get-login-password --region ap-southeast-2 | docker login --username AWS --password-stdin 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com && docker pull 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-api-vibe-scorer:latest"
+ssh -i ~/watchme-key.pem ubuntu@3.24.16.82 "aws ecr get-login-password --region ap-southeast-2 | docker login --username AWS --password-stdin 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com && docker pull 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-vibe-analysis-scorer:latest"
 ```
 
 ### 📝 移行ガイド（他のAPIをCI/CD化する場合）
@@ -535,27 +584,27 @@ git push origin main
 
 ### systemdサービス情報
 
-- **サービス名**: `api-gpt-v1.service`
-- **設定ファイル**: `/home/ubuntu/watchme-server-configs/docker-compose-files/api-gpt-v1-docker-compose.prod.yml`
+- **サービス名**: `vibe-analysis-scorer.service`
+- **設定ファイル**: `/home/ubuntu/watchme-server-configs/docker-compose-files/vibe-analysis-scorer-docker-compose.prod.yml`
 - **自動起動**: 有効（EC2再起動時に自動起動）
 
 ### サービス管理コマンド
 
 ```bash
 # サービスの状態確認
-sudo systemctl status api-gpt-v1
+sudo systemctl status vibe-analysis-scorer
 
 # サービスの再起動
-sudo systemctl restart api-gpt-v1
+sudo systemctl restart vibe-analysis-scorer
 
 # サービスの停止
-sudo systemctl stop api-gpt-v1
+sudo systemctl stop vibe-analysis-scorer
 
 # サービスの開始
-sudo systemctl start api-gpt-v1
+sudo systemctl start vibe-analysis-scorer
 
 # ログの確認（リアルタイム）
-sudo journalctl -u api-gpt-v1 -f
+sudo journalctl -u vibe-analysis-scorer -f
 ```
 
 ## 📊 運用管理
@@ -570,20 +619,20 @@ docker ps | grep api-gpt
 sudo lsof -i :8002
 
 # APIヘルスチェック
-curl https://api.hey-watch.me/vibe-scorer/health
+curl https://api.hey-watch.me/vibe-analysis/scorer/health
 
 # ECRから最新イメージを取得
 aws ecr get-login-password --region ap-southeast-2 | \
   docker login --username AWS --password-stdin \
   754724220380.dkr.ecr.ap-southeast-2.amazonaws.com
 
-docker pull 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-api-vibe-scorer:latest
+docker pull 754724220380.dkr.ecr.ap-southeast-2.amazonaws.com/watchme-vibe-analysis-scorer:latest
 ```
 
 ## 📚 API エンドポイント
 
 ### 基本情報
-- **本番環境URL**: `https://api.hey-watch.me/vibe-scorer`
+- **本番環境URL**: `https://api.hey-watch.me/vibe-analysis/scorer`
 - **認証**: 不要（OpenAI APIキーは環境変数で設定）
 - **レスポンス形式**: JSON
 
@@ -674,12 +723,12 @@ python3 test_mood_analysis.py
 
 ```bash
 # 心理グラフ(VibeGraph)生成 - Supabase統合
-curl -X POST https://api.hey-watch.me/vibe-scorer/analyze-vibegraph-supabase \
+curl -X POST https://api.hey-watch.me/vibe-analysis/scorer/analyze-vibegraph-supabase \
   -H "Content-Type: application/json" \
   -d '{"device_id": "d067d407-cf73-4174-a9c1-d91fb60d64d0", "date": "2025-07-14"}'
 
 # 汎用ChatGPT中継
-curl -X POST https://api.hey-watch.me/vibe-scorer/analyze/chatgpt \
+curl -X POST https://api.hey-watch.me/vibe-analysis/scorer/analyze/chatgpt \
   -H "Content-Type: application/json" \
   -d '{"prompt": "あなたのプロンプトをここに入力"}'
 ```
@@ -798,7 +847,7 @@ supabase==2.3.4
 ### 本番環境情報
 
 - **EC2インスタンス**: 3.24.16.82
-- **外部URL**: https://api.hey-watch.me/vibe-scorer/
+- **外部URL**: https://api.hey-watch.me/vibe-analysis/scorer/
 - **内部ポート**: 8002
 - **コンテナ管理**: AWS ECR + systemd
 
@@ -842,7 +891,7 @@ import aiohttp
 
 # 同期版
 def analyze_vibegraph(device_id: str, date: str):
-    url = "https://api.hey-watch.me/vibe-scorer/analyze-vibegraph-supabase"
+    url = "https://api.hey-watch.me/vibe-analysis/scorer/analyze-vibegraph-supabase"
     data = {"device_id": device_id, "date": date}
     
     response = requests.post(url, json=data)
@@ -853,7 +902,7 @@ def analyze_vibegraph(device_id: str, date: str):
 
 # 非同期版
 async def analyze_vibegraph_async(device_id: str, date: str):
-    url = "https://api.hey-watch.me/vibe-scorer/analyze-vibegraph-supabase"
+    url = "https://api.hey-watch.me/vibe-analysis/scorer/analyze-vibegraph-supabase"
     data = {"device_id": device_id, "date": date}
     
     async with aiohttp.ClientSession() as session:
@@ -880,8 +929,8 @@ print(result)
 
 ### APIドキュメント
 
-- **Swagger UI**: `https://api.hey-watch.me/vibe-scorer/docs`
-- **ReDoc**: `https://api.hey-watch.me/vibe-scorer/redoc`
+- **Swagger UI**: `https://api.hey-watch.me/vibe-analysis/scorer/docs`
+- **ReDoc**: `https://api.hey-watch.me/vibe-analysis/scorer/redoc`
 
 ### セキュリティ設定
 
