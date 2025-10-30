@@ -6,9 +6,38 @@
 
 **URL**: `https://api.hey-watch.me/vibe-analysis/scorer/`
 
+### 現在の稼働状態
+
+**✅ 本番稼働中**（2025-10-30より）
+
+| 項目 | 値 |
+|------|-----|
+| **LLMプロバイダー** | Groq |
+| **モデル** | openai/gpt-oss-120b（推論モデル） |
+| **Reasoning Effort** | medium |
+| **デプロイ日** | 2025-10-30 |
+| **ステータス** | healthy ✅ |
+
+**確認方法**:
+```bash
+curl https://api.hey-watch.me/vibe-analysis/scorer/health | jq
+```
+
+**期待されるレスポンス**:
+```json
+{
+  "status": "healthy",
+  "llm_provider": "groq",
+  "llm_model": "openai/gpt-oss-120b"
+}
+```
+
+### インフラ
+
 - マイクロサービスとして外部から利用可能
 - SSL/HTTPS対応、CORS設定済み
 - Docker + ECR + systemd で運用
+- CI/CD自動デプロイ（GitHub Actions）
 
 ---
 
