@@ -57,10 +57,9 @@ class DashboardSummaryRequest(BaseModel):
 
 class TimeBlockAnalysisRequest(BaseModel):
     """タイムブロック単位の分析リクエスト"""
-    prompt: str
-    device_id: Optional[str] = None
-    date: Optional[str] = None
-    time_block: Optional[str] = None
+    device_id: str
+    date: str
+    time_block: str
 
 def extract_json_from_response(raw_response: str) -> Dict[str, Any]:
     """ChatGPTの応答からJSONを抽出し、改善された処理を適用する"""
@@ -389,25 +388,48 @@ async def analyze_vibegraph_supabase(request: VibeGraphRequest):
 @app.post("/analyze-timeblock")
 async def analyze_timeblock(request: TimeBlockAnalysisRequest):
     """
-    タイムブロック単位の分析処理 + dashboardテーブルへの保存
+    タイムブロック単位の分析処理 + audio_scorerテーブルへの保存
     """
     try:
-        # 必須パラメータのチェック
-        if not request.device_id or not request.date or not request.time_block:
-            raise HTTPException(
-                status_code=400,
-                detail="device_id, date, time_block は必須パラメータです"
-            )
-        
-        print(f"\n🔍 タイムブロック分析開始（保存あり）")
+        print(f"\n🔍 タイムブロック分析開始")
         print(f"  - Device ID: {request.device_id}")
         print(f"  - Date: {request.date}")
         print(f"  - Time Block: {request.time_block}")
-        print(f"  - Prompt length: {len(request.prompt)} chars")
-        
+
+        # Supabaseクライアントの取得
+        supabase = get_supabase_client()
+
+        # audio_aggregatorテーブルからプロンプトを取得
+        print("📥 audio_aggregatorテーブルからプロンプト取得中...")
+        try:
+            result = supabase.client.table('audio_aggregator').select('vibe_aggregator_result').eq('device_id', request.device_id).eq('date', request.date).execute()
+
+            if not result.data or len(result.data) == 0:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"audio_aggregatorにデータが見つかりません: device_id={request.device_id}, date={request.date}"
+                )
+
+            prompt = result.data[0].get('vibe_aggregator_result')
+            if not prompt:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"vibe_aggregator_resultが空です: device_id={request.device_id}, date={request.date}"
+                )
+
+            print(f"  ✅ プロンプト取得完了: {len(prompt)} chars")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"❌ プロンプト取得失敗: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"プロンプト取得エラー: {str(e)}"
+            )
+
         # LLM処理（プロバイダー抽象化）
         print(f"📤 LLMに送信中... ({CURRENT_PROVIDER}/{CURRENT_MODEL})")
-        analysis_result = await call_llm_with_retry(request.prompt)
+        analysis_result = await call_llm_with_retry(prompt)
         print(f"✅ LLM処理完了")
         
         # 結果をターミナルに表示
@@ -416,9 +438,6 @@ async def analyze_timeblock(request: TimeBlockAnalysisRequest):
         print("="*60)
         print(json.dumps(analysis_result, ensure_ascii=False, indent=2))
         print("="*60 + "\n")
-        
-        # Supabaseクライアントの取得
-        supabase = get_supabase_client()
 
         # audio_scorerテーブルへの保存用データを準備
         audio_scorer_data = {

@@ -450,6 +450,9 @@ supabase==2.3.4
 
 ### v8.0.0 (2025-11-10)
 - **Breaking Change**: 保存先テーブルを`dashboard`から`audio_scorer`に変更
+- **Breaking Change**: プロンプトの読み込み元を`audio_aggregator.vibe_aggregator_result`に変更
+- リクエストパラメータ変更：`prompt`削除、`device_id`, `date`, `time_block`のみ必須
+- マイクロサービス原則に従った設計：APIが自分でDBからデータを読み込む
 - カラム名を統一命名規則に従って変更：
   - `summary` → `vibe_summary`
   - `behavior` → `vibe_behavior`
