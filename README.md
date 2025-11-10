@@ -250,24 +250,32 @@ curl https://api.hey-watch.me/vibe-analysis/scorer/health
 
 ### 2. タイムブロック分析
 
+**v8.0.0以降の変更点**:
+- ❌ `prompt`パラメータ削除（APIが自分でDBから取得）
+- ✅ マイクロサービスアーキテクチャに準拠
+
 ```bash
 curl -X POST https://api.hey-watch.me/vibe-analysis/scorer/analyze-timeblock \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "分析用プロンプト",
-    "device_id": "uuid",
-    "date": "2025-10-30",
+    "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
+    "date": "2025-11-10",
     "time_block": "14-00"
   }'
 ```
+
+**処理フロー**:
+1. `audio_aggregator.vibe_aggregator_result`からプロンプト取得
+2. LLM（Groq/ChatGPT）で分析実行
+3. `audio_scorer`テーブルに結果保存
 
 **レスポンス:**
 ```json
 {
   "status": "success",
   "message": "タイムブロック分析が完了しました（DB保存成功）",
-  "device_id": "uuid",
-  "date": "2025-10-30",
+  "device_id": "9f7d6e27-98c3-4c19-bdfb-f7fda58b9a93",
+  "date": "2025-11-10",
   "time_block": "14-00",
   "analysis_result": {
     "summary": "30分間の状況説明",
@@ -275,7 +283,7 @@ curl -X POST https://api.hey-watch.me/vibe-analysis/scorer/analyze-timeblock \
     "behavior": "作業中"
   },
   "database_save": true,
-  "processed_at": "2025-10-30T14:30:00.000Z",
+  "processed_at": "2025-11-10T14:30:00.000Z",
   "model_used": "groq/openai/gpt-oss-120b"
 }
 ```
@@ -313,9 +321,41 @@ curl -X POST https://api.hey-watch.me/vibe-analysis/scorer/analyze-dashboard-sum
 
 ## 📊 データベース構造
 
-### dashboardテーブル
+### audio_scorerテーブル（v8.0.0〜）
 
-タイムブロック分析結果を保存
+**タイムブロック分析結果を保存**
+
+```sql
+CREATE TABLE public.audio_scorer (
+    device_id TEXT NOT NULL,
+    date DATE NOT NULL,
+    time_block TEXT NOT NULL,
+    vibe_score DOUBLE PRECISION CHECK (vibe_score >= -100 AND vibe_score <= 100),
+    vibe_summary TEXT,
+    vibe_behavior TEXT,
+    vibe_scorer_result JSONB,
+    vibe_analyzed_at TIMESTAMP WITH TIME ZONE,
+    error_message TEXT,
+    retry_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    daily_summary_status TEXT DEFAULT 'pending',
+    PRIMARY KEY (device_id, date, time_block)
+);
+```
+
+### audio_aggregatorテーブル（読み込み元）
+
+**プロンプト取得元**
+
+このAPIは`audio_aggregator.vibe_aggregator_result`からプロンプトを読み込みます。
+
+### ~~dashboardテーブル（v7.9.9まで・非推奨）~~
+
+**v8.0.0以降は使用しません**
+
+<details>
+<summary>旧スキーマ（参考用）</summary>
 
 ```sql
 CREATE TABLE public.dashboard (
@@ -334,6 +374,8 @@ CREATE TABLE public.dashboard (
     PRIMARY KEY (device_id, date, time_block)
 );
 ```
+
+</details>
 
 ### dashboard_summaryテーブル
 
