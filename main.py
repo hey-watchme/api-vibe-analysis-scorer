@@ -419,29 +419,28 @@ async def analyze_timeblock(request: TimeBlockAnalysisRequest):
         
         # Supabaseクライアントの取得
         supabase = get_supabase_client()
-        
-        # dashboardテーブルへの保存用データを準備
-        dashboard_data = {
+
+        # audio_scorerテーブルへの保存用データを準備
+        audio_scorer_data = {
             'device_id': request.device_id,
             'date': request.date,
             'time_block': request.time_block,
-            'summary': analysis_result.get('summary'),
-            'behavior': analysis_result.get('behavior'),  # behaviorフィールドを追加
+            'vibe_summary': analysis_result.get('summary'),
+            'vibe_behavior': analysis_result.get('behavior'),
             'vibe_score': analysis_result.get('vibe_score'),
-            'analysis_result': json.dumps(analysis_result, ensure_ascii=False),  # JSONBとして保存
-            'status': 'completed',  # ステータスを完了に設定
-            'processed_at': datetime.now().isoformat(),
+            'vibe_scorer_result': analysis_result,  # JSONB型として保存
+            'vibe_analyzed_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat()
         }
-        
-        # dashboardテーブルに保存（UPSERT）
-        print("💾 dashboardテーブルに保存中...")
+
+        # audio_scorerテーブルに保存（UPSERT）
+        print("💾 audio_scorerテーブルに保存中...")
         try:
-            result = supabase.client.table('dashboard').upsert(dashboard_data).execute()
-            print(f"✅ dashboardテーブルへの保存完了")
+            result = supabase.client.table('audio_scorer').upsert(audio_scorer_data).execute()
+            print(f"✅ audio_scorerテーブルへの保存完了")
             save_success = True
         except Exception as e:
-            print(f"❌ dashboardテーブルへの保存失敗: {e}")
+            print(f"❌ audio_scorerテーブルへの保存失敗: {e}")
             save_success = False
             # 保存に失敗してもレスポンスは返す
         
